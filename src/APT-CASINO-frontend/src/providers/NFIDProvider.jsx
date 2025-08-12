@@ -28,7 +28,11 @@ const defaultOptions = {
     identityProvider:
       process.env.DFX_NETWORK === "ic"
         ? "https://identity.ic0.app/#authorize"
-        : `http://by6od-j4aaa-aaaaa-qaadq-cai.localhost:4943`,
+        : `http://${
+            import.meta.env.VITE_CANISTER_ID_INTERNET_IDENTITY ||
+            process.env.CANISTER_ID_INTERNET_IDENTITY ||
+            "be2us-64aaa-aaaaa-qaabq-cai"
+          }.localhost:4943`,
   },
 };
 
@@ -184,26 +188,31 @@ export const useAuthClient = (options = defaultOptions) => {
           });
         }
 
-        // Create APTC Token Actor
-        const aptcActor = createAPTCTokenActor(
-          process.env.CANISTER_ID_APTC_TOKEN,
-          { agent }
-        );
+        // Create APTC Token Actor with fallback
+        const aptcCanisterId =
+          import.meta.env.VITE_CANISTER_ID_APTC_TOKEN ||
+          process.env.CANISTER_ID_APTC_TOKEN ||
+          "bkyz2-fmaaa-aaaaa-qaaaq-cai";
+        const aptcActor = createAPTCTokenActor(aptcCanisterId, { agent });
         setAptcTokenActor(aptcActor);
 
-        // Create Roulette Actor
-        const rouletteActor = createRouletteActor(
-          process.env.CANISTER_ID_ROULETTE_GAME,
-          { agent }
-        );
+        // Create Roulette Actor with fallback
+        const rouletteCanisterId =
+          import.meta.env.VITE_CANISTER_ID_ROULETTE_GAME ||
+          process.env.CANISTER_ID_ROULETTE_GAME ||
+          "bw4dl-smaaa-aaaaa-qaacq-cai";
+        const rouletteActor = createRouletteActor(rouletteCanisterId, {
+          agent,
+        });
         setRouletteActor(rouletteActor);
 
         // Create Mines Actor (with error handling)
         try {
-          const minesActor = createMinesActor(
-            process.env.CANISTER_ID_MINES_GAME,
-            { agent }
-          );
+          const minesCanisterId =
+            import.meta.env.VITE_CANISTER_ID_MINES_GAME ||
+            process.env.CANISTER_ID_MINES_GAME ||
+            "br5f7-7uaaa-aaaaa-qaaca-cai";
+          const minesActor = createMinesActor(minesCanisterId, { agent });
           setMinesActor(minesActor);
         } catch (error) {
           console.warn("Failed to create mines actor:", error);

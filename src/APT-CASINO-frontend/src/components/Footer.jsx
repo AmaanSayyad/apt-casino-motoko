@@ -10,6 +10,7 @@ import {
   FaShieldAlt,
   FaCoins,
 } from "react-icons/fa";
+import { ASSETS } from "../utils/assets";
 
 export default function Footer() {
   const [email, setEmail] = useState("");
@@ -20,12 +21,12 @@ export default function Footer() {
     {
       name: "Twitter",
       url: "https://twitter.com",
-      icon: "/images/social/twitter.svg",
+      icon: ASSETS.socialIcons.twitter,
     },
     {
       name: "Discord",
       url: "https://discord.com",
-      icon: "/images/social/discord.svg",
+      icon: ASSETS.socialIcons.discord,
     },
     {
       name: "Telegram",

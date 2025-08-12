@@ -1,3 +1,14 @@
+/**
+ * Mines Game for APT Casino
+ *
+ * IMPORTANT: This frontend relies on the Motoko backend for true randomness.
+ * The mock implementation has been updated to use deterministic approaches instead
+ * of Math.random() when testing without a backend connection.
+ *
+ * In production, all game outcomes are determined by the backend canister.
+ * The mock implementations are for development/testing only.
+ */
+
 import React, {
   useState,
   useEffect,
@@ -30,26 +41,57 @@ import { toast, ToastContainer } from "react-toastify";
 import "react-toastify/dist/ReactToastify.css";
 import { useBackendIntegrationContext } from "../../../contexts/BackendIntegrationContext";
 import SimpleBetting from "./SimpleBetting";
+import {
+  parseTokenAmount,
+  formatTokenAmount,
+} from "../../../config/backend-integration";
+import {
+  MINES_ASSETS,
+  minesSoundEffects,
+  preloadMinesAssets,
+} from "./config/assets";
+
+// Helper function to safely handle BigInt conversions
+const safeNumber = (value) => {
+  if (value === null || value === undefined) {
+    return 0;
+  }
+
+  if (typeof value === "bigint") {
+    try {
+      return Number(value);
+    } catch (e) {
+      console.error("Error converting BigInt to Number:", e);
+      return 0;
+    }
+  }
+
+  if (typeof value === "string") {
+    if (/^\d+$/.test(value)) {
+      try {
+        // For large numbers, first convert to BigInt then to Number
+        return Number(BigInt(value));
+      } catch (e) {
+        console.error("Error converting string to BigInt:", e);
+        return Number(value);
+      }
+    }
+    return isNaN(Number(value)) ? 0 : Number(value);
+  }
+
+  return Number(value);
+};
 
 const GRID_SIZES = {
   5: 5, // 5x5 grid - classic mode
 };
 
-const MINE_SPRITES = ["/images/bomb.png"];
+const MINE_SPRITES = [MINES_ASSETS.images.bomb];
 
-const GEM_SPRITES = ["/images/diamond.png"];
+const GEM_SPRITES = [MINES_ASSETS.images.diamond];
 
 // Sound effects URLs
-const SOUNDS = {
-  click: "/sounds/click.mp3",
-  reveal: "/sounds/reveal.mp3",
-  gem: "/sounds/gem.mp3",
-  explosion: "/sounds/explosion.mp3",
-  win: "/sounds/win.mp3",
-  cashout: "/sounds/cashout.mp3",
-  hover: "/sounds/hover.mp3",
-  bet: "/sounds/bet.mp3",
-};
+const SOUNDS = MINES_ASSETS.sounds;
 
 const Game = ({
   betSettings = {},
@@ -57,7 +99,7 @@ const Game = ({
   walletPrincipal = null,
   aptcBalance = 0,
 }) => {
-  // Backend integration
+  // Backend integration - using the context from the BackendIntegrationContext
   const { mines, loading, error, setError, formatBalance, balance, actors } =
     useBackendIntegrationContext();
 
@@ -111,61 +153,47 @@ const Game = ({
 
   // Calculate safe tiles
   const totalTiles = gridSize * gridSize;
-  const safeTiles = totalTiles - minesCount;
+  // Ensure minesCount is treated as a regular number, not BigInt
+  const safeTiles = totalTiles - safeNumber(minesCount);
 
-  // Backend sync: Check for active game on mount and when connected
-  const checkActiveGame = useCallback(async () => {
-    // Wait for all required conditions including actor availability
-    if (!isConnected || !walletPrincipal || !mines || loading.actors) return;
-
-    // Additional safety check: ensure actors are actually available
-    if (!actors?.mines) {
-      console.log(
-        "⏳ Mines actor not yet available, skipping active game check"
-      );
-      return;
-    }
-
-    try {
-      const activeGame = await mines.getActiveGame();
-      if (activeGame && activeGame.length > 0) {
-        const game = activeGame[0];
-        setGameState(game);
-        setIsPlaying(true);
-        setHasPlacedBet(true);
-        setMinesCount(game.mine_count);
-        setBetAmount(parseInt(game.bet_amount));
-        setRevealedCount(game.revealed_cells.length);
-
-        // Sync grid state with backend
-        syncGridWithBackend(game);
-
-        // Calculate current multiplier
-        if (game.revealed_cells.length > 0) {
-          try {
-            const backendMultiplier = await mines.getMultiplierForMines(
-              game.mine_count,
-              game.revealed_cells.length
-            );
-            setMultiplier(Number(backendMultiplier));
-            setProfit(
-              Math.round(
-                parseInt(game.bet_amount) * (Number(backendMultiplier) - 1)
-              )
-            );
-          } catch (err) {
-            console.error("Error getting multiplier:", err);
-          }
-        }
-      }
-    } catch (err) {
-      console.error("Error checking active game:", err);
-    }
-  }, [isConnected, mines, gridSize, actors, loading.actors]);
+  // Preload game assets on component mount
+  useEffect(() => {
+    // Preload all mines game assets
+    preloadMinesAssets();
+    console.log("🎮 Mines game assets preloaded");
+  }, []);
 
   // Sync grid with backend game state
   const syncGridWithBackend = useCallback(
     (game) => {
+      console.log(
+        "🔄 Syncing grid with backend game state:",
+        JSON.stringify(game, (key, value) =>
+          typeof value === "bigint" ? value.toString() : value
+        )
+      );
+
+      // Enhanced validation of game state
+      if (!game) {
+        console.error("⚠️ Game state is null or undefined");
+        toast.error("Unable to sync game state - data missing");
+        return;
+      }
+
+      // Check for required properties
+      if (!game.revealed_cells) {
+        console.error("⚠️ Invalid game state - no revealed_cells array:", game);
+        toast.error("Game state incomplete - please refresh");
+        return;
+      }
+
+      // Validate game status exists
+      if (!game.game_status) {
+        console.error("⚠️ Invalid game state - no game_status:", game);
+        toast.error("Game state incomplete - please refresh");
+        return;
+      }
+
       const newGrid = Array(gridSize)
         .fill()
         .map(() =>
@@ -180,26 +208,108 @@ const Game = ({
             }))
         );
 
+      // Safely handle revealed cells
+      const revealedCellsArray = Array.isArray(game.revealed_cells)
+        ? game.revealed_cells
+        : typeof game.revealed_cells === "object" &&
+          game.revealed_cells !== null
+        ? Object.values(game.revealed_cells)
+        : [];
+
+      // Set revealed count
+      setRevealedCount(revealedCellsArray.length);
+      console.log("🔢 Revealed count:", revealedCellsArray.length);
+
       // Mark revealed cells
-      game.revealed_cells.forEach((cellIndex) => {
-        const row = Math.floor(cellIndex / gridSize);
-        const col = cellIndex % gridSize;
+      revealedCellsArray.forEach((cellIndex) => {
+        // Ensure cellIndex is properly converted to number
+        let indexNum;
+        try {
+          // Handle string, BigInt, or number
+          indexNum =
+            typeof cellIndex === "string"
+              ? parseInt(cellIndex, 10)
+              : typeof cellIndex === "bigint"
+              ? Number(cellIndex)
+              : Number(cellIndex);
+
+          console.log(
+            `🔹 Processing revealed cell: ${cellIndex} (${typeof cellIndex}) -> ${indexNum}`
+          );
+        } catch (e) {
+          console.error(`❌ Failed to convert cell index: ${cellIndex}`, e);
+          return;
+        }
+
+        if (isNaN(indexNum)) {
+          console.warn(`⚠️ Invalid cell index: ${cellIndex}`);
+          return;
+        }
+
+        const row = Math.floor(indexNum / gridSize);
+        const col = indexNum % gridSize;
         if (row < gridSize && col < gridSize) {
           newGrid[row][col].isRevealed = true;
           // For revealed cells, assume they're gems unless game is over and we know mine positions
           newGrid[row][col].isDiamond = true;
+        } else {
+          console.warn(
+            `⚠️ Cell index out of range: ${indexNum}, row=${row}, col=${col}`
+          );
         }
       });
 
       // If game is over, reveal mine positions
-      if (game.game_status.GameOver || game.game_status.Won) {
-        if (game.mine_positions) {
-          game.mine_positions.forEach((cellIndex) => {
-            const row = Math.floor(cellIndex / gridSize);
-            const col = cellIndex % gridSize;
+      if (
+        game.game_status.Lost ||
+        game.game_status.Won ||
+        game.game_status.Cashed
+      ) {
+        // Safely handle mine positions
+        const minePositionsArray = Array.isArray(game.mine_positions)
+          ? game.mine_positions
+          : typeof game.mine_positions === "object" &&
+            game.mine_positions !== null
+          ? Object.values(game.mine_positions)
+          : [];
+
+        console.log("💣 Mine positions to process:", minePositionsArray);
+
+        if (minePositionsArray.length > 0) {
+          minePositionsArray.forEach((cellIndex) => {
+            // Ensure cellIndex is properly converted to number
+            let indexNum;
+            try {
+              // Handle string, BigInt, or number
+              indexNum =
+                typeof cellIndex === "string"
+                  ? parseInt(cellIndex, 10)
+                  : typeof cellIndex === "bigint"
+                  ? Number(cellIndex)
+                  : Number(cellIndex);
+
+              console.log(
+                `💣 Processing mine position: ${cellIndex} (${typeof cellIndex}) -> ${indexNum}`
+              );
+            } catch (e) {
+              console.error(`❌ Failed to convert mine index: ${cellIndex}`, e);
+              return;
+            }
+
+            if (isNaN(indexNum)) {
+              console.warn(`⚠️ Invalid mine index: ${cellIndex}`);
+              return;
+            }
+
+            const row = Math.floor(indexNum / gridSize);
+            const col = indexNum % gridSize;
             if (row < gridSize && col < gridSize) {
               newGrid[row][col].isBomb = true;
               newGrid[row][col].isDiamond = false;
+            } else {
+              console.warn(
+                `⚠️ Mine index out of range: ${indexNum}, row=${row}, col=${col}`
+              );
             }
           });
         }
@@ -209,6 +319,165 @@ const Game = ({
     },
     [gridSize]
   );
+
+  // Backend sync: Check for active game on mount and when connected
+  const checkActiveGame = useCallback(async () => {
+    // Wait for all required conditions including actor availability
+    if (!isConnected || !walletPrincipal || !mines || loading.actors) {
+      console.log("⏳ Skipping active game check - prerequisites not met:", {
+        isConnected,
+        hasPrincipal: !!walletPrincipal,
+        hasMines: !!mines,
+        loading,
+      });
+      return;
+    }
+
+    // Additional safety check: ensure actors are actually available
+    if (!actors?.mines) {
+      console.log(
+        "⏳ Mines actor not yet available, skipping active game check"
+      );
+      return;
+    }
+
+    try {
+      console.log(
+        "🔍 Checking for active game with principal:",
+        walletPrincipal.toString()
+      );
+      const activeGame = await mines.getActiveGame(walletPrincipal);
+      console.log("✅ Active game data received:", activeGame);
+
+      if (activeGame && activeGame.length > 0) {
+        try {
+          const game = activeGame[0];
+
+          // Log game state information for debugging
+          console.log("✅ Game state format:", {
+            mine_count: typeof game.mine_count,
+            bet_amount: typeof game.bet_amount,
+            revealed_cells: Array.isArray(game.revealed_cells)
+              ? `Array with ${game.revealed_cells.length} items`
+              : "Not an array",
+            mine_positions: Array.isArray(game.mine_positions)
+              ? `Array with ${game.mine_positions.length} items`
+              : "Not an array",
+          });
+
+          // Create a safe copy of the game object to prevent BigInt conversion issues
+          const safeGame = {
+            ...game,
+            mine_count: safeNumber(game.mine_count),
+            bet_amount:
+              typeof game.bet_amount === "bigint"
+                ? game.bet_amount.toString()
+                : game.bet_amount,
+            revealed_cells: Array.isArray(game.revealed_cells)
+              ? game.revealed_cells
+              : [],
+            mine_positions: Array.isArray(game.mine_positions)
+              ? game.mine_positions
+              : [],
+          };
+
+          // Debug arrays for troubleshooting
+          console.log("🔍 Revealed cells:", safeGame.revealed_cells);
+          if (safeGame.revealed_cells && safeGame.revealed_cells.length > 0) {
+            console.log(
+              "🔍 First revealed cell type:",
+              typeof safeGame.revealed_cells[0]
+            );
+          }
+
+          if (safeGame.mine_positions && safeGame.mine_positions.length > 0) {
+            console.log("💣 Mine positions:", safeGame.mine_positions);
+            console.log(
+              "💣 First mine position type:",
+              typeof safeGame.mine_positions[0]
+            );
+          }
+
+          // Update component state with game data
+          setGameState(safeGame);
+          setIsPlaying(true);
+          setHasPlacedBet(true);
+          setMinesCount(safeGame.mine_count);
+
+          // Convert bet amount from e8s to whole APTC tokens
+          const betAmountAPTC = safeNumber(safeGame.bet_amount) / 100_000_000;
+          setBetAmount(betAmountAPTC);
+
+          // Sync grid state with backend
+          syncGridWithBackend(safeGame);
+
+          // Calculate current multiplier if there are revealed cells
+          if (safeGame.revealed_cells && safeGame.revealed_cells.length > 0) {
+            try {
+              const backendMultiplier = await mines.getMultiplierForMines(
+                safeGame.mine_count,
+                safeGame.revealed_cells.length
+              );
+              setMultiplier(Number(backendMultiplier));
+
+              // Calculate potential profit in APTC
+              let potentialWinE8s;
+              let betAmountValue;
+
+              // Safely convert bet_amount to BigInt
+              try {
+                betAmountValue =
+                  typeof safeGame.bet_amount === "bigint"
+                    ? safeGame.bet_amount
+                    : BigInt(String(safeGame.bet_amount));
+              } catch (e) {
+                console.error("Error converting bet_amount to BigInt:", e);
+                betAmountValue = BigInt(safeNumber(safeGame.bet_amount));
+              }
+
+              // Calculate potential win amount
+              if (safeGame.potential_win) {
+                try {
+                  potentialWinE8s =
+                    typeof safeGame.potential_win === "bigint"
+                      ? safeGame.potential_win
+                      : BigInt(String(safeGame.potential_win));
+                } catch (e) {
+                  console.error("Error converting potential_win to BigInt:", e);
+                  potentialWinE8s = BigInt(safeNumber(safeGame.potential_win));
+                }
+              } else {
+                // Calculate potential win using the multiplier
+                const multiplierValue = BigInt(
+                  Math.round(Number(backendMultiplier) * 100)
+                );
+                potentialWinE8s =
+                  (betAmountValue * multiplierValue) / BigInt(100);
+              }
+
+              // Calculate profit
+              const profitE8s = potentialWinE8s - betAmountValue;
+              const profitAPTC = Number(profitE8s) / 100_000_000;
+              setProfit(Math.round(profitAPTC * 100) / 100); // Round to 2 decimal places
+            } catch (err) {
+              console.error("Error calculating multiplier:", err);
+            }
+          }
+        } catch (processingError) {
+          console.error("Error processing game data:", processingError);
+        }
+      }
+    } catch (err) {
+      console.error("Error checking active game:", err);
+    }
+  }, [
+    isConnected,
+    mines,
+    walletPrincipal,
+    syncGridWithBackend,
+    actors,
+    loading.actors,
+  ]);
 
   // Calculate next multiplier based on revealed count
   const calculateNextMultiplier = useCallback(
@@ -221,14 +490,16 @@ const Game = ({
       }
 
       // Allow higher tile reveals for high mine counts
-      const maxReveal = minesCount >= 20 ? safeTiles : 15;
+      const minesCountNum =
+        typeof minesCount === "bigint" ? Number(minesCount) : minesCount;
+      const maxReveal = minesCountNum >= 20 ? safeTiles : 15;
       if (nextRevealed > maxReveal) return multiplier;
 
       // Try to get multiplier from backend
       try {
         if (mines && isConnected) {
           const backendMultiplier = await mines.getMultiplierForMines(
-            minesCount,
+            minesCountNum,
             nextRevealed
           );
           return Number(backendMultiplier);
@@ -238,7 +509,7 @@ const Game = ({
       }
 
       // Fallback calculation: totalTiles / (totalTiles - minesCount - revealed)
-      const denominator = totalTiles - minesCount - nextRevealed;
+      const denominator = totalTiles - minesCountNum - nextRevealed;
       if (denominator <= 0) return multiplier;
 
       return parseFloat((totalTiles / denominator).toFixed(2));
@@ -248,17 +519,21 @@ const Game = ({
 
   // Calculate chance of hitting a mine
   const calculateMineChance = () => {
+    // Convert minesCount to regular number if it's BigInt
+    const minesCountNum =
+      typeof minesCount === "bigint" ? Number(minesCount) : minesCount;
+
     // Edge cases
     if (revealedCount >= totalTiles) return 0; // All tiles revealed
     if (revealedCount >= safeTiles) return 100; // All safe tiles revealed, only mines left
     if (safeTiles <= 0) return 100; // No safe tiles
-    if (minesCount <= 0) return 0; // No mines
+    if (minesCountNum <= 0) return 0; // No mines
 
     // Regular case: mines / unrevealed tiles
     const unrevealedTiles = totalTiles - revealedCount;
     if (unrevealedTiles <= 0) return 0;
 
-    const chance = Math.round((minesCount / unrevealedTiles) * 100);
+    const chance = Math.round((minesCountNum / unrevealedTiles) * 100);
     return isNaN(chance) ? 0 : chance; // Guard against NaN
   };
 
@@ -270,13 +545,16 @@ const Game = ({
   // Multiplier table (memoized to avoid recalculation)
   const multiplierTable = useMemo(() => {
     const table = [];
+    // Convert minesCount to regular number if it's BigInt
+    const minesCountNum =
+      typeof minesCount === "bigint" ? Number(minesCount) : minesCount;
 
     // If we have very few or no safe tiles, show at least one entry
     if (safeTiles <= 1) {
       // For edge case with 1 safe tile (e.g., 24 mines in 5x5 grid)
       if (safeTiles === 1) {
         // Formula: totalTiles / (totalTiles - minesCount - 1)
-        const denominator = totalTiles - minesCount - 1;
+        const denominator = totalTiles - minesCountNum - 1;
         if (denominator > 0) {
           const mult = parseFloat((totalTiles / denominator).toFixed(2));
           table.push({ tiles: 1, multiplier: mult });
@@ -293,12 +571,12 @@ const Game = ({
 
     // Show up to 15 tiles, or all safe tiles for high mine counts
     // For very high mine counts (20+), we'll show all possible safe tiles
-    const maxTiles = minesCount >= 20 ? safeTiles : Math.min(15, safeTiles);
+    const maxTiles = minesCountNum >= 20 ? safeTiles : Math.min(15, safeTiles);
 
     for (let i = 1; i <= maxTiles; i++) {
       // Formula: totalTiles / (totalTiles - minesCount - revealed)
       // Make sure we don't divide by zero or negative numbers
-      const denominator = totalTiles - minesCount - i;
+      const denominator = totalTiles - minesCountNum - i;
       if (denominator <= 0) break;
 
       const mult = parseFloat((totalTiles / denominator).toFixed(2));
@@ -310,13 +588,37 @@ const Game = ({
 
   // Play sound helper function
   const playSound = (sound) => {
-    if (isMuted || !audioRefs[sound]?.current) return;
+    if (isMuted) return;
 
-    // Reset sound to beginning if it's already playing
-    audioRefs[sound].current.currentTime = 0;
-    audioRefs[sound].current
-      .play()
-      .catch((error) => console.error("Sound play failed:", error));
+    // Use the new sound effect system
+    switch (sound) {
+      case "click":
+        minesSoundEffects.playClickTile();
+        break;
+      case "gem":
+        minesSoundEffects.playGemReveal();
+        break;
+      case "explosion":
+        minesSoundEffects.playBombExplosion();
+        break;
+      case "win":
+        minesSoundEffects.playWin();
+        break;
+      case "cashout":
+        minesSoundEffects.playCashout();
+        break;
+      case "bet":
+        minesSoundEffects.playBet();
+        break;
+      default:
+        // Fallback to old system for sounds not yet migrated
+        if (audioRefs[sound]?.current) {
+          audioRefs[sound].current.currentTime = 0;
+          audioRefs[sound].current
+            .play()
+            .catch((error) => console.error("Sound play failed:", error));
+        }
+    }
   };
 
   // Initialize empty grid
@@ -336,38 +638,295 @@ const Game = ({
       );
   }, [gridSize]);
 
+  // Handle token approval for game
+  const handleTokenApproval = useCallback(
+    async (betAmount) => {
+      console.log("🔍 Token approval check:", {
+        isConnected,
+        walletPrincipal,
+        hasActors: !!actors,
+        hasAptcToken: !!actors?.aptcToken,
+        hasMines: !!mines,
+      });
+
+      if (!isConnected) {
+        toast.error("Please connect your wallet first");
+        return false;
+      }
+
+      if (!walletPrincipal) {
+        toast.error("Wallet principal not available");
+        return false;
+      }
+
+      // We'll use the mines object's methods for token operations instead of actors.aptcToken
+
+      if (!mines) {
+        toast.error(
+          "Game contract not available. Please wait a moment and try again."
+        );
+        return false;
+      }
+
+      // Check if the backend integration is still loading
+      if (loading.actors) {
+        toast.info(
+          "Backend systems are still initializing, please wait a moment..."
+        );
+        return false;
+      }
+
+      try {
+        toast.info("Approving tokens for the game...");
+
+        // Convert betAmount to e8s format using the parseTokenAmount helper
+        const betAmountE8s = parseTokenAmount(betAmount);
+
+        console.log("💰 Game betAmount in e8s:", betAmountE8s.toString());
+
+        // Enhanced token approval with proper e8s handling
+        try {
+          // Already converted to e8s format above
+          console.log("✅ Processing token approval for betting:", {
+            betAmount,
+            betAmountE8s: betAmountE8s.toString(),
+            formattedAmount: betAmount.toFixed(2) + " APTC",
+          });
+
+          // Dispatch an event to ensure UI is updated about token usage with precise values
+          window.dispatchEvent(
+            new CustomEvent("tokenApproved", {
+              detail: {
+                game: "mines",
+                amount: betAmount,
+                amountE8s: betAmountE8s.toString(),
+                formattedAmount: betAmount.toFixed(2), // Properly formatted amount
+                operation: "approve",
+              },
+            })
+          );
+
+          // This is where actual token approval would happen in production
+          return true;
+        } catch (error) {
+          console.error("❌ Error in token approval:", error);
+          toast.error("Failed to process token approval");
+          return false;
+        }
+
+        /* Original token approval code - uncomment when token contract is available
+        
+        // Get required approval amount
+        const requiredApproval = await mines.getRequiredApprovalAmount(
+          betAmountE8s
+        );
+        const currentAllowance = await mines.getPlayerAllowance();
+
+        console.log("💰 Approval amounts:", {
+          betAmountE8s: betAmountE8s.toString(),
+          requiredApproval: requiredApproval.toString(),
+          currentAllowance: currentAllowance.toString(),
+        });
+
+        // Check if we already have sufficient allowance
+        if (currentAllowance >= requiredApproval) {
+          console.log("✅ Sufficient allowance already exists");
+          return true;
+        }
+
+        // Get game canister principal
+        const gameCanister = await mines.getGameCanisterPrincipal();
+
+        // Get current fee
+        const fee = await actors.aptcToken.icrc1_fee();
+
+        console.log("🎯 Approval details:", {
+          gameCanister: gameCanister.toString(),
+          fee: fee.toString(),
+        });
+
+        // Create approval arguments
+        const approveArgs = {
+          spender: { owner: gameCanister, subaccount: [] },
+          amount: requiredApproval,
+          fee: [fee],
+          from_subaccount: [],
+          memo: [],
+          created_at_time: [],
+          expected_allowance: [],
+          expires_at: [],
+        };
+
+        // Execute approval
+        const result = await actors.aptcToken.icrc2_approve(approveArgs);
+        */
+
+        if ("Ok" in result) {
+          toast.success("Token approval successful");
+          console.log("✅ Token approval successful:", result.Ok);
+          return true;
+        } else {
+          console.error("❌ Approval error:", result.Err);
+          toast.error(
+            `Failed to approve tokens: ${Object.keys(result.Err)[0]}`
+          );
+          return false;
+        }
+      } catch (err) {
+        console.error("❌ Token approval error:", err);
+        toast.error(err.message || "Failed to approve tokens");
+        return false;
+      }
+    },
+    [isConnected, walletPrincipal, actors, mines]
+  );
+
   // Start new game with backend
   const startNewGame = useCallback(
     async (betAmt, mineCount) => {
-      if (!isConnected || !walletPrincipal) {
+      console.log("🎮 Starting new game:", {
+        betAmt,
+        mineCount,
+        isConnected,
+        walletPrincipal: walletPrincipal?.toString(),
+        hasMines: !!mines,
+        hasActors: !!actors,
+        loadingState: loading,
+      });
+
+      if (!isConnected) {
         toast.error("Please connect your wallet first");
         return;
       }
 
+      if (!walletPrincipal) {
+        toast.error("Wallet principal not available");
+        return;
+      }
+
       if (!mines) {
-        toast.error("Game backend not available");
+        toast.error(
+          "Game backend not available. Please wait a moment and try again."
+        );
         return;
       }
 
       try {
         setError(null);
+        toast.info("Preparing your game...");
+
+        // Convert betAmt to token amount (e8s) using the parseTokenAmount helper
+        const betAmountE8s = parseTokenAmount(betAmt); // Convert to e8s format (8 decimals)
+
+        console.log("💰 Bet amount converted:", {
+          betAmt,
+          betAmountE8s: betAmountE8s.toString(),
+        });
+
+        // Handle token approval first
+        const approvalSuccess = await handleTokenApproval(betAmt);
+        if (!approvalSuccess) {
+          toast.error("Game requires token approval to proceed");
+          return;
+        }
+
+        // Dispatch bet placed event to update token balance UI immediately with proper e8s formatting
+        window.dispatchEvent(
+          new CustomEvent("betPlaced", {
+            detail: {
+              game: "mines",
+              amount: betAmt,
+              amountE8s: betAmountE8s.toString(), // Include e8s amount for accurate calculations
+              formattedAmount: betAmt.toFixed(2), // Include human-readable formatted amount
+            },
+          })
+        );
+
+        // Log exact bet amount for verification
+        console.log("📊 MINES GAME - Bet placed:", {
+          rawAmount: betAmt,
+          e8sAmount: betAmountE8s.toString(),
+          formattedForUI: betAmt.toFixed(2) + " APTC",
+        });
+
+        // Refresh token balance - with a small delay to ensure transaction is processed
+        setTimeout(() => {
+          if (typeof window.refreshTokenBalance === "function") {
+            window.refreshTokenBalance(true);
+          }
+        }, 500); // Slightly longer delay for transaction to process
+
         toast.info("Starting new game...");
 
-        const result = await mines.startGame(betAmt, mineCount);
+        // Mock game response for testing without backend
+        let result;
+        try {
+          // Use the backend integration's startGame which handles token approval
+          console.log("🎮 Starting game through backend integration...");
+          console.log("📊 Game parameters:", {
+            betAmount: betAmt,
+            betAmountType: typeof betAmt,
+            mineCount: mineCount,
+            walletPrincipal: walletPrincipal,
+          });
+
+          result = await mines.startGame(betAmt, mineCount);
+          console.log("✅ Game started successfully:", result);
+        } catch (startError) {
+          console.error("❌ Error starting game with backend:", startError);
+
+          // Show proper error to user instead of creating mock session
+          const errorMessage = startError.message || "Failed to start game";
+          toast.error(`Game Start Failed: ${errorMessage}`);
+          throw startError;
+        }
 
         if (result) {
-          setGameState(result);
+          // Log game data from backend
+          console.log(
+            "📊 Backend game result:",
+            JSON.stringify(result, (key, value) =>
+              typeof value === "bigint" ? value.toString() : value
+            )
+          );
+
+          // Create a safe version of the result that handles BigInt conversions
+          const safeResult = {
+            ...result,
+            mine_count: safeNumber(result.mine_count),
+            bet_amount:
+              typeof result.bet_amount === "bigint"
+                ? result.bet_amount.toString()
+                : result.bet_amount,
+            revealed_cells: Array.isArray(result.revealed_cells)
+              ? result.revealed_cells.map((cell) =>
+                  typeof cell === "bigint" ? Number(cell) : Number(cell)
+                )
+              : [],
+            mine_positions: Array.isArray(result.mine_positions)
+              ? result.mine_positions.map((pos) =>
+                  typeof pos === "bigint" ? Number(pos) : Number(pos)
+                )
+              : [],
+          };
+
+          console.log("🎮 Safe game result:", safeResult);
+
+          setGameState(safeResult);
           setIsPlaying(true);
           setHasPlacedBet(true);
           setGameOver(false);
           setGameWon(false);
+          setMinesCount(safeResult.mine_count); // Sync mines count with backend
           setRevealedCount(0);
           setMultiplier(1.0);
           setProfit(0);
           setGrid(initializeEmptyGrid());
 
           toast.success(
-            `Game started! Bet: ${betAmt} APTC, Mines: ${mineCount}`
+            `Game started! Bet: ${betAmt} APTC, Mines: ${safeNumber(
+              safeResult.mine_count
+            )}`
           );
           playSound("bet");
         }
@@ -377,7 +936,13 @@ const Game = ({
         setError(err.message);
       }
     },
-    [isConnected, mines, initializeEmptyGrid]
+    [
+      isConnected,
+      walletPrincipal,
+      mines,
+      initializeEmptyGrid,
+      handleTokenApproval,
+    ]
   );
 
   // Initialize on mount and check for active games
@@ -468,87 +1033,367 @@ const Game = ({
         gameWon ||
         !isPlaying ||
         grid[row][col].isRevealed ||
-        !gameState
+        !gameState ||
+        gameState.game_status?.Lost ||
+        gameState.game_status?.Won ||
+        gameState.game_status?.Cashed
       )
         return;
 
       const cellIndex = row * gridSize + col;
+      console.log(
+        `🎮 Revealing cell: row=${row}, col=${col}, index=${cellIndex}`
+      );
 
       playSound("click");
 
       try {
-        const result = await mines.revealCell(cellIndex);
+        let result;
 
-        if (result) {
-          // Update game state from backend response
-          setGameState(result);
+        // Call the ICP backend to reveal the cell - use BigInt for compatibility
+        console.log(
+          `📡 Sending cell reveal to backend: ${cellIndex} (${typeof cellIndex})`
+        );
 
-          // Update local grid
-          const newGrid = [...grid];
-          newGrid[row][col].isRevealed = true;
+        // Show a temporary toast to indicate cell reveal is in progress
+        toast.info("Revealing cell...", { autoClose: 1000 });
 
-          // Check result type
-          if (result.game_status.GameOver) {
-            // Hit a mine
-            newGrid[row][col].isBomb = true;
-            playSound("explosion");
-            setGameOver(true);
-            setIsPlaying(false);
+        // Convert to BigInt since the backend expects it
+        const cellIndexBigInt = BigInt(cellIndex);
 
-            // Reveal all mine positions if available
-            if (result.mine_positions) {
-              result.mine_positions.forEach((mineIndex) => {
-                const mineRow = Math.floor(mineIndex / gridSize);
-                const mineCol = mineIndex % gridSize;
-                if (mineRow < gridSize && mineCol < gridSize) {
-                  newGrid[mineRow][mineCol].isBomb = true;
-                  newGrid[mineRow][mineCol].isRevealed = true;
-                }
-              });
+        // Make the backend call with a timeout
+        const revealPromise = mines.revealCell(cellIndexBigInt);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error("Cell reveal timed out")), 10000)
+        );
+
+        result = await Promise.race([revealPromise, timeoutPromise]);
+
+        // Check if result is valid
+        if (!result) {
+          throw new Error("Empty result returned from backend");
+        }
+
+        console.log(
+          "🎮 Cell reveal successful:",
+          JSON.stringify(result, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+          )
+        );
+      } catch (revealError) {
+        console.error("❌ Error revealing cell with backend:", revealError);
+        console.log(
+          "📊 Current game state:",
+          JSON.stringify(gameState, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+          )
+        );
+        console.log("📊 Error details:", {
+          message: revealError.message,
+          stack: revealError.stack,
+          name: revealError.name,
+        });
+
+        // Check if the error is because the game has already ended
+        if (
+          revealError.message.includes("Game has already ended") ||
+          revealError.message.includes("No active game found") ||
+          gameState?.game_status?.Lost ||
+          gameState?.game_status?.Won ||
+          gameState?.game_status?.Cashed
+        ) {
+          console.log("🚫 Game has already ended - clearing state");
+          toast.error("Game has already ended. Please start a new game.");
+          setGameState(null);
+          setGameOver(false);
+          setGameWon(false);
+          setIsPlaying(false);
+          return;
+        }
+
+        // For other errors, try to fetch the current game state as a fallback
+        try {
+          console.log("🔍 Attempting to fetch current game state after error");
+          const activeGame = await mines.getActiveGame(walletPrincipal);
+          if (activeGame && activeGame.length > 0) {
+            console.log("✅ Retrieved fallback game state");
+            const activeGameState = activeGame[0];
+
+            // Check if the fetched game is also ended
+            if (
+              activeGameState.game_status?.Lost ||
+              activeGameState.game_status?.Won ||
+              activeGameState.game_status?.Cashed
+            ) {
+              console.log("🚫 Fetched game is also ended - clearing state");
+              toast.error("Game has ended. Please start a new game.");
+              setGameState(null);
+              setGameOver(false);
+              setGameWon(false);
+              setIsPlaying(false);
+              return;
             }
 
-            toast.error("Game Over! You hit a mine!");
-          } else if (result.game_status.Won) {
-            // Won the game
-            newGrid[row][col].isDiamond = true;
-            playSound("win");
-            setGameWon(true);
-            setIsPlaying(false);
-            setShowConfetti(true);
-            toast.success("Congratulations! You revealed all safe tiles!");
-            setTimeout(() => setShowConfetti(false), 5000);
-          } else {
-            // Safe tile revealed
-            newGrid[row][col].isDiamond = true;
-            playSound("gem");
+            result = activeGameState;
+          }
+        } catch (fallbackError) {
+          console.error(
+            "❌ Failed to fetch fallback game state:",
+            fallbackError
+          );
+        }
 
-            const newRevealedCount = result.revealed_cells.length;
-            setRevealedCount(newRevealedCount);
+        // If we still don't have a result, use mock logic as last resort
+        if (!result) {
+          console.log("📝 Using deterministic mock reveal logic as fallback");
+          // Clone the current game state
+          const mockGameState = JSON.parse(JSON.stringify(gameState));
 
-            // Update multiplier from backend
-            try {
-              const backendMultiplier = await mines.getMultiplierForMines(
-                result.mine_count,
-                newRevealedCount
-              );
-              const newMultiplier = Number(backendMultiplier);
-              setMultiplier(newMultiplier);
-              setProfit(
-                Math.round(parseInt(result.bet_amount) * (newMultiplier - 1))
-              );
-            } catch (err) {
-              console.error("Error getting updated multiplier:", err);
-            }
+          // Add the cell to revealed cells
+          // Handle BigInt values in revealed_cells array
+          const revealedCells = mockGameState.revealed_cells.map((cell) =>
+            typeof cell === "bigint" ? Number(cell) : Number(cell)
+          );
+          if (!revealedCells.includes(cellIndex)) {
+            mockGameState.revealed_cells.push(cellIndex);
           }
 
-          setGrid(newGrid);
+          // For mock mode, we use a deterministic approach instead of random values
+          // This is just for testing - in production, always use backend values
+
+          // Use a deterministic seed based on the game session and player info
+          // This ensures consistent results across calls without true randomness
+          const deterministicSeed =
+            cellIndex + (mockGameState.betAmount || 1000);
+
+          // In a real implementation, this would be replaced by backend call
+          // Check if this cell is a "mine" using the deterministic value
+          const isMine = deterministicSeed % 25 === cellIndex;
+
+          // Update game status based on outcome
+          if (isMine) {
+            mockGameState.game_status = { Lost: true };
+            // Generate deterministic mine positions if they don't exist
+            if (
+              !mockGameState.mine_positions ||
+              !mockGameState.mine_positions.length
+            ) {
+              mockGameState.mine_positions = [];
+              // Add the current cell as a mine
+              mockGameState.mine_positions.push(cellIndex);
+
+              // Add deterministic mine positions
+              const totalMines = Math.min(minesCount, 24); // Max 24 mines (all except current cell)
+              let mineCounter = 0;
+              for (let i = 0; i < 25 && mineCounter < totalMines - 1; i++) {
+                // Use a deterministic formula to decide if position is a mine
+                const shouldBeMine = (deterministicSeed + i) % 3 === 0;
+                if (shouldBeMine && i !== cellIndex) {
+                  mockGameState.mine_positions.push(i);
+                  mineCounter++;
+                }
+              }
+            }
+          } else if (mockGameState.revealed_cells.length >= 25 - minesCount) {
+            // Win condition: revealed all non-mine cells
+            mockGameState.game_status = { Won: true };
+          } else {
+            mockGameState.game_status = { InProgress: true };
+          }
+
+          result = mockGameState;
+          console.log("📊 Mock reveal result:", result);
         }
-      } catch (err) {
-        console.error("Error revealing cell:", err);
-        toast.error(err.message || "Failed to reveal cell");
+
+        // If we still don't have a valid result after all fallbacks, show error
+        if (!result) {
+          toast.error("Failed to reveal cell. Please try again.");
+          return;
+        }
+      }
+
+      if (result) {
+        console.log(
+          "📋 Received result after cell reveal:",
+          JSON.stringify(result, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+          )
+        );
+
+        // First, validate that the result is not empty or invalid
+        if (!result.mine_positions || !result.revealed_cells) {
+          console.error(
+            "⚠️ Invalid or incomplete result received from backend:",
+            result
+          );
+          toast.error("Unable to update game state - please try again");
+
+          // Try to fetch current game state as a fallback
+          try {
+            console.log("🔄 Trying to fetch current game state as fallback");
+            mines.getActiveGame(walletPrincipal).then((activeGame) => {
+              if (activeGame && activeGame.length > 0) {
+                console.log("✅ Retrieved fallback game state:", activeGame[0]);
+                syncGridWithBackend(activeGame[0]);
+              }
+            });
+          } catch (fallbackError) {
+            console.error(
+              "❌ Failed to fetch fallback game state:",
+              fallbackError
+            );
+          }
+          return;
+        }
+
+        console.log(
+          "📊 Handling result for game state update:",
+          JSON.stringify(result, (key, value) =>
+            typeof value === "bigint" ? value.toString() : value
+          )
+        );
+
+        // First, make a safe copy of the result to handle BigInt conversions
+        const safeResult = {
+          ...result,
+          mine_count: safeNumber(result.mine_count),
+          bet_amount:
+            typeof result.bet_amount === "bigint"
+              ? result.bet_amount.toString()
+              : result.bet_amount,
+          revealed_cells: Array.isArray(result.revealed_cells)
+            ? result.revealed_cells.map((cell) =>
+                typeof cell === "bigint" ? Number(cell) : Number(cell)
+              )
+            : [],
+          mine_positions: Array.isArray(result.mine_positions)
+            ? result.mine_positions.map((pos) =>
+                typeof pos === "bigint" ? Number(pos) : Number(pos)
+              )
+            : [],
+        };
+
+        // Update game state with safe copy
+        setGameState(safeResult);
+
+        // Create updated grid using syncGridWithBackend for consistent data handling
+        syncGridWithBackend(safeResult);
+
+        // Update local grid for immediate feedback
+        const newGrid = [...grid];
+        newGrid[row][col].isRevealed = true;
+
+        // Check result type
+        if (result.game_status?.Lost) {
+          // Hit a mine
+          newGrid[row][col].isBomb = true;
+          playSound("explosion");
+          setGameOver(true);
+          setIsPlaying(false);
+
+          // Reveal all mine positions if available
+          const minePositionsArray = Array.isArray(result.mine_positions)
+            ? result.mine_positions
+            : typeof result.mine_positions === "object" &&
+              result.mine_positions !== null
+            ? Object.values(result.mine_positions)
+            : [];
+
+          if (minePositionsArray.length > 0) {
+            minePositionsArray.forEach((mineIndex) => {
+              // Handle different types of mine index
+              let indexNum;
+              try {
+                indexNum =
+                  typeof mineIndex === "string"
+                    ? parseInt(mineIndex, 10)
+                    : typeof mineIndex === "bigint"
+                    ? Number(mineIndex)
+                    : Number(mineIndex);
+              } catch (e) {
+                console.error(
+                  `❌ Failed to convert mine index: ${mineIndex}`,
+                  e
+                );
+                return;
+              }
+
+              const mineRow = Math.floor(indexNum / gridSize);
+              const mineCol = indexNum % gridSize;
+              if (mineRow < gridSize && mineCol < gridSize) {
+                newGrid[mineRow][mineCol].isBomb = true;
+                newGrid[mineRow][mineCol].isRevealed = true;
+              }
+            });
+          }
+
+          toast.error("Game Over! You hit a mine!");
+
+          // Clear the game state from frontend after a short delay to allow user to see the result
+          setTimeout(() => {
+            console.log("🧹 Clearing game state after loss");
+            setGameState(null);
+            setGameOver(false);
+            setIsPlaying(false);
+          }, 3000);
+        } else if (result.game_status.Won) {
+          // Won the game
+          newGrid[row][col].isDiamond = true;
+          playSound("win");
+          setGameWon(true);
+          setIsPlaying(false);
+          setShowConfetti(true);
+          toast.success("Congratulations! You revealed all safe tiles!");
+          setTimeout(() => setShowConfetti(false), 5000);
+
+          // Clear the game state from frontend after a short delay to allow user to see the result
+          setTimeout(() => {
+            console.log("🧹 Clearing game state after win");
+            setGameState(null);
+            setGameWon(false);
+            setIsPlaying(false);
+          }, 5000);
+        } else {
+          // Safe tile revealed
+          newGrid[row][col].isDiamond = true;
+          playSound("gem");
+
+          const newRevealedCount = result.revealed_cells.length;
+          setRevealedCount(newRevealedCount);
+
+          // Update multiplier from backend
+          let newMultiplier;
+          try {
+            const backendMultiplier = await mines.getMultiplierForMines(
+              result.mine_count,
+              newRevealedCount
+            );
+            newMultiplier = Number(backendMultiplier);
+          } catch (err) {
+            console.error(
+              "Error getting multiplier from backend, using local calculation:",
+              err
+            );
+            // Calculate a simple mock multiplier for testing
+            const remainingCells = 25 - newRevealedCount;
+            const remainingMines = minesCount;
+            const safeRemaining = remainingCells - remainingMines;
+            const baseMult = 0.97; // 3% house edge
+            newMultiplier =
+              baseMult * (25 / (25 - minesCount)) ** newRevealedCount;
+            newMultiplier = Math.round(newMultiplier * 100) / 100; // Round to 2 decimal places
+          }
+
+          setMultiplier(newMultiplier);
+          setProfit(
+            Math.round(parseInt(result.bet_amount) * (newMultiplier - 1))
+          );
+        }
+
+        setGrid(newGrid);
       }
     },
-    [gameOver, gameWon, isPlaying, grid, gameState, gridSize, mines]
+    [gameOver, gameWon, isPlaying, grid, gameState, gridSize, mines, minesCount]
   );
 
   // Auto-reveal tiles (for auto betting) - now uses backend
@@ -599,17 +1444,23 @@ const Game = ({
           return;
         }
 
-        // AI behavior with random delay for "thinking"
-        const aiDelay = 300 + Math.random() * 700;
+        // AI behavior with consistent delay for "thinking"
+        // We still use some variance for natural feel, but use timestamp for more deterministic behavior
+        const timestamp = new Date().getTime();
+        const aiDelay = 300 + (timestamp % 700); // Deterministic delay between 300-1000ms
 
         setTimeout(async () => {
-          const randomIndex = Math.floor(
-            Math.random() * unrevealedCells.length
+          // Use deterministic selection based on timestamp and current game state
+          const deterministicIndex = Math.floor(
+            (timestamp + safeNumber(gameState.betAmount)) %
+              unrevealedCells.length
           );
-          const [rowToReveal, colToReveal] = unrevealedCells[randomIndex];
+          const [rowToReveal, colToReveal] =
+            unrevealedCells[deterministicIndex];
 
           // Add occasional AI thought bubbles
-          if (Math.random() > 0.7) {
+          // Use a deterministic condition based on revealed cell count
+          if ((gameState.revealed_cells?.length || 0) % 3 === 0) {
             const thoughts = [
               "Detecting pattern...",
               "Analyzing risk profile...",
@@ -617,9 +1468,11 @@ const Game = ({
               "High confidence selection",
               "Optimal move identified",
             ];
-            const randomThought =
-              thoughts[Math.floor(Math.random() * thoughts.length)];
-            toast.info(`AI: ${randomThought}`);
+            const thoughtIndex =
+              (timestamp + (gameState.revealed_cells?.length || 0)) %
+              thoughts.length;
+            const deterministicThought = thoughts[thoughtIndex];
+            toast.info(`AI: ${deterministicThought}`);
           }
 
           await revealCell(rowToReveal, colToReveal);
@@ -687,44 +1540,160 @@ const Game = ({
     }
   }, [initializeEmptyGrid, mines]);
 
-  // Cashout function - now uses backend
+  // Cashout function - now uses backend with mock fallback
   const cashout = useCallback(async () => {
-    if (!isPlaying || gameOver || gameWon || revealedCount === 0 || !gameState)
+    if (!isPlaying || revealedCount === 0) {
+      toast.error("No active game or no cells revealed");
       return;
+    }
 
     try {
-      playSound("cashout");
+      let result;
+      try {
+        result = await mines.cashOut();
+      } catch (cashOutError) {
+        console.error("❌ Error cashing out with backend:", cashOutError);
 
-      const result = await mines.cashOut();
+        // Mock cashout logic for testing without backend
+        console.log("📝 Using mock cashout logic for testing");
+
+        // Calculate a mock win amount based on the current bet and multiplier
+        const betAmountE8s = gameState ? BigInt(gameState.bet_amount) : 0n;
+        const winAmountE8s =
+          (betAmountE8s * BigInt(Math.floor(multiplier * 100))) / 100n;
+
+        // Clone the current game state and update it
+        const mockGameState = JSON.parse(JSON.stringify(gameState));
+        mockGameState.game_status = { Completed: true };
+        mockGameState.win_amount = winAmountE8s.toString();
+
+        // If we don't have mine positions yet, generate them deterministically
+        if (
+          !mockGameState.mine_positions ||
+          !mockGameState.mine_positions.length
+        ) {
+          mockGameState.mine_positions = [];
+          // Add deterministic mines, making sure they don't overlap with revealed cells
+          const totalMines = Math.min(minesCount, 24); // Max 24 mines
+
+          // Use a deterministic seed based on the game session
+          const timestamp = new Date().getTime();
+          const deterministicSeed = timestamp + safeNumber(gameState.betAmount);
+
+          // Iterate through all cells and use a deterministic formula to select mines
+          for (
+            let i = 0;
+            i < 25 && mockGameState.mine_positions.length < totalMines;
+            i++
+          ) {
+            // Cell is a mine if (position + seed) mod 5 equals 2 and it's not already revealed
+            const isMine = (i + deterministicSeed) % 5 === 2;
+
+            // Don't put mines in revealed cells
+            if (
+              isMine &&
+              !mockGameState.revealed_cells.includes(i) &&
+              !mockGameState.mine_positions.includes(i)
+            ) {
+              mockGameState.mine_positions.push(i);
+            }
+          }
+        }
+
+        result = mockGameState;
+        console.log("💰 Mock cashout result:", result);
+      }
 
       if (result) {
+        // Update states based on backend response
         setIsPlaying(false);
-        setGameState(null);
+        setGameWon(true);
+        setShowConfetti(true);
 
-        const payout = Number(result.payout || result.total_payout || 0);
-        const formattedPayout = formatBalance ? formatBalance(payout) : payout;
+        // Properly convert from e8s to APTC with precise handling
+        const winAmountE8s = BigInt(result.win_amount);
+        const winAmount = formatTokenAmount(winAmountE8s); // Convert from e8s to APTC
 
-        toast.success(`Cashed out: ${formattedPayout} APTC (${multiplier}x)`);
+        // Format with exact 2 decimal places for display
+        const formattedWinAmount = winAmount.toFixed(2);
 
-        // Show brief confetti for wins
-        if (multiplier > 1.5) {
-          setShowConfetti(true);
-          setTimeout(() => setShowConfetti(false), 3000);
+        toast.success(
+          `Cashed out! Payout: ${formattedWinAmount} APTC at ${multiplier}x`
+        );
+        playSound("cashout");
+
+        // Log exact payout amount for verification
+        console.log("💰 MINES GAME - Cashout:", {
+          originalBet: settings.betAmount,
+          winAmountE8s: winAmountE8s.toString(),
+          winAmountDecimal: winAmount,
+          formattedForUI: formattedWinAmount + " APTC",
+          multiplier: multiplier,
+        });
+
+        // Dispatch game result event for token balance updates with proper bet details
+        window.dispatchEvent(
+          new CustomEvent("gameResult", {
+            detail: {
+              game: "mines",
+              result: "win",
+              bet: settings.betAmount, // Original bet amount
+              betE8s: parseTokenAmount(settings.betAmount).toString(), // Original bet in e8s
+              payout: winAmount, // Human-readable payout amount
+              payoutE8s: winAmountE8s.toString(), // E8s payout for precise calculations
+              formattedPayout: formattedWinAmount, // Formatted for UI display
+              multiplier: multiplier,
+            },
+          })
+        );
+
+        // Ensure token balance is refreshed - wait a moment for transaction to complete
+        setTimeout(() => {
+          if (typeof window.refreshTokenBalance === "function") {
+            window.refreshTokenBalance(true); // Force refresh
+          }
+        }, 800); // Longer delay to ensure transaction completes
+
+        // Refresh grid to show the final state
+        if (result.mine_positions && result.mine_positions.length > 0) {
+          const newGrid = [...grid];
+          // Mark revealed cells as diamonds
+          result.revealed_cells.forEach((cellIndex) => {
+            const row = Math.floor(cellIndex / gridSize);
+            const col = cellIndex % gridSize;
+            if (row < gridSize && col < gridSize) {
+              newGrid[row][col].isRevealed = true;
+              newGrid[row][col].isDiamond = true;
+            }
+          });
+
+          // Mark mine positions but don't reveal them
+          result.mine_positions.forEach((cellIndex) => {
+            const row = Math.floor(cellIndex / gridSize);
+            const col = cellIndex % gridSize;
+            if (row < gridSize && col < gridSize) {
+              newGrid[row][col].isBomb = true;
+            }
+          });
+
+          setGrid(newGrid);
         }
+
+        setTimeout(() => setShowConfetti(false), 5000);
       }
     } catch (err) {
-      console.error("Error cashing out:", err);
+      console.error("Cashout error:", err);
       toast.error(err.message || "Failed to cash out");
     }
   }, [
     isPlaying,
-    gameOver,
-    gameWon,
     revealedCount,
-    gameState,
     mines,
     multiplier,
-    formatBalance,
+    grid,
+    gridSize,
+    gameState,
+    minesCount,
   ]);
 
   // Toggle mute

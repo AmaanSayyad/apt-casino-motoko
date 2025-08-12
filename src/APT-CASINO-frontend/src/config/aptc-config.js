@@ -14,7 +14,7 @@ export const CANISTER_IDS = {
   aptc_token:
     process.env.NEXT_PUBLIC_APTC_TOKEN_CANISTER_ID ||
     process.env.CANISTER_ID_APTC_TOKEN ||
-    "be2us-64aaa-aaaaa-qaabq-cai",
+    "bkyz2-fmaaa-aaaaa-qaaaq-cai",
   roulette:
     process.env.NEXT_PUBLIC_ROULETTE_CANISTER_ID ||
     process.env.CANISTER_ID_ROULETTE_GAME ||
@@ -23,10 +23,14 @@ export const CANISTER_IDS = {
     process.env.NEXT_PUBLIC_MINES_CANISTER_ID ||
     process.env.CANISTER_ID_MINES_GAME ||
     "be2us-64aaa-aaaaa-qaabq-cai",
+  wheel:
+    process.env.NEXT_PUBLIC_WHEEL_CANISTER_ID ||
+    process.env.CANISTER_ID_WHEEL_GAME ||
+    "br5f7-7uaaa-aaaaa-qaaca-cai",
   casino_frontend:
     process.env.NEXT_PUBLIC_CASINO_FRONTEND_CANISTER_ID ||
     process.env.CANISTER_ID_APT_CASINO_FRONTEND ||
-    "be2us-64aaa-aaaaa-qaabq-cai",
+    "by6od-j4aaa-aaaaa-qaadq-cai",
 };
 
 // Network configuration
@@ -45,10 +49,11 @@ export const NETWORK_CONFIG = {
 export const CURRENT_NETWORK =
   process.env.NODE_ENV === "production" ? "ic" : "local";
 
-// Create HTTP Agent
+// Create HTTP Agent with retries
 export const createAgent = async (identity = null) => {
   // For local development, make sure we're using the right port
-  const localHost = `http://127.0.0.1:${process.env.DFX_PORT || "4943"}`;
+  // Force using 4943 to avoid connection issues with incorrect ports like 50707
+  const localHost = "http://127.0.0.1:4943";
 
   // Determine host based on network and environment
   const host =
@@ -58,21 +63,49 @@ export const createAgent = async (identity = null) => {
 
   console.log(`🌐 Creating HTTP agent for host: ${host}`);
 
+  // Create agent with improved timeout and retry settings
   const agent = new HttpAgent({
     host,
     identity,
-    // Increase timeout for local development
-    fetchOptions: CURRENT_NETWORK === "local" ? { timeout: 30000 } : undefined,
+    // Increased timeout for all environments
+    fetchOptions: {
+      timeout: 60000, // 60 seconds timeout
+    },
+    // Disable certificate verification in development
+    ...(CURRENT_NETWORK === "local" ? { verifyQuerySignatures: false } : {}),
   });
 
-  // Fetch root key for local development
+  // Set up retry logic for fetching the root key
+  const fetchRootKeyWithRetry = async (maxRetries = 3, delay = 1000) => {
+    let retries = 0;
+    while (retries < maxRetries) {
+      try {
+        console.log(`� Fetching root key (attempt ${retries + 1})...`);
+        await agent.fetchRootKey();
+        console.log("✅ Root key fetch complete");
+        return;
+      } catch (err) {
+        retries++;
+        console.warn(
+          `⚠️ Root key fetch attempt ${retries} failed:`,
+          err.message
+        );
+        if (retries >= maxRetries) {
+          console.warn(
+            "⚠️ Max retries reached for fetchRootKey. Proceeding anyway."
+          );
+          return;
+        }
+        // Wait before retrying
+        await new Promise((resolve) => setTimeout(resolve, delay * retries));
+      }
+    }
+  };
+
+  // Fetch root key for local development with retries
   if (CURRENT_NETWORK === "local") {
     try {
-      console.log("🔑 Fetching root key for local development...");
-      await agent.fetchRootKey().catch((e) => {
-        console.warn("⚠️ Could not fetch root key, proceeding anyway...", e);
-      });
-      console.log("✅ Root key fetch complete");
+      await fetchRootKeyWithRetry();
     } catch (err) {
       console.warn("⚠️ Unable to fetch root key. Check your local replica.");
       console.error(err);
@@ -253,23 +286,229 @@ export const rouletteIdl = {
   },
 };
 
-// Create Token Actor
-export const createAPTCTokenActor = async (identity = null) => {
-  try {
-    const agent = await createAgent(identity);
-
-    // Instead of dynamic import, use the direct IDL factory with static imports
-    // This is more reliable in certain build environments
-    const { idlFactory } = aptcTokenIdl;
-
-    return Actor.createActor(idlFactory, {
-      agent,
-      canisterId: CANISTER_IDS.aptc_token,
+// Mines Game Interface
+export const minesIdl = {
+  idlFactory: ({ IDL }) => {
+    const CellState = IDL.Variant({
+      Hidden: IDL.Null,
+      Revealed: IDL.Null,
+      Mine: IDL.Null,
+      Safe: IDL.Null,
     });
-  } catch (err) {
-    console.error("Failed to create APTC token actor:", err);
-    throw err;
+
+    const GameState = IDL.Variant({
+      NotStarted: IDL.Null,
+      InProgress: IDL.Null,
+      Won: IDL.Null,
+      Lost: IDL.Null,
+      Cashed: IDL.Null,
+    });
+
+    const MinesGameSession = IDL.Record({
+      player: IDL.Principal,
+      betAmount: IDL.Nat,
+      mineCount: IDL.Nat,
+      gameState: GameState,
+      grid: IDL.Vec(CellState),
+      minePositions: IDL.Vec(IDL.Nat),
+      revealedCells: IDL.Vec(IDL.Nat),
+      multiplier: IDL.Float64,
+      potentialWin: IDL.Nat,
+      startTime: IDL.Int,
+      endTime: IDL.Opt(IDL.Int),
+    });
+
+    const GameResult = IDL.Record({
+      gameId: IDL.Nat,
+      player: IDL.Principal,
+      betAmount: IDL.Nat,
+      winAmount: IDL.Nat,
+      mineCount: IDL.Nat,
+      revealedCells: IDL.Vec(IDL.Nat),
+      minePositions: IDL.Vec(IDL.Nat),
+      gameState: GameState,
+      timestamp: IDL.Int,
+    });
+
+    const UserStats = IDL.Record({
+      totalBets: IDL.Nat,
+      totalWagered: IDL.Nat,
+      totalWon: IDL.Nat,
+      totalLost: IDL.Nat,
+      biggestWin: IDL.Nat,
+      gamesPlayed: IDL.Nat,
+      lastGameTime: IDL.Int,
+    });
+
+    const MinesError = IDL.Variant({
+      NotAuthorized: IDL.Null,
+      GameNotFound: IDL.Null,
+      GameNotInProgress: IDL.Null,
+      GameAlreadyInProgress: IDL.Null,
+      InvalidCellIndex: IDL.Null,
+      CellAlreadyRevealed: IDL.Null,
+      InsufficientBalance: IDL.Null,
+      InvalidBetAmount: IDL.Null,
+      InvalidMineCount: IDL.Null,
+      TransferFailed: IDL.Text,
+      GameNotStarted: IDL.Null,
+      TooManyMines: IDL.Null,
+      TooFewMines: IDL.Null,
+      CooldownActive: IDL.Null,
+      GameInactive: IDL.Null,
+      NotInitialized: IDL.Null,
+      InsufficientAllowance: IDL.Null,
+    });
+
+    return IDL.Service({
+      // Game functions
+      startGame: IDL.Func(
+        [IDL.Nat, IDL.Nat],
+        [IDL.Variant({ Ok: MinesGameSession, Err: MinesError })],
+        []
+      ),
+      startGameWithProxy: IDL.Func(
+        [IDL.Principal, IDL.Nat, IDL.Nat],
+        [IDL.Variant({ Ok: MinesGameSession, Err: MinesError })],
+        []
+      ),
+      revealCell: IDL.Func(
+        [IDL.Nat],
+        [IDL.Variant({ Ok: MinesGameSession, Err: MinesError })],
+        []
+      ),
+      cashOut: IDL.Func(
+        [],
+        [IDL.Variant({ Ok: GameResult, Err: MinesError })],
+        []
+      ),
+
+      // Query functions
+      getActiveGame: IDL.Func(
+        [IDL.Principal],
+        [IDL.Opt(MinesGameSession)],
+        ["query"]
+      ),
+      getMyActiveGame: IDL.Func(
+        [],
+        [IDL.Variant({ Ok: MinesGameSession, Err: MinesError })],
+        []
+      ),
+      getGameHistory: IDL.Func(
+        [IDL.Principal, IDL.Opt(IDL.Nat)],
+        [IDL.Vec(GameResult)],
+        ["query"]
+      ),
+      getUserStats: IDL.Func([IDL.Principal], [IDL.Opt(UserStats)], ["query"]),
+      getGameStats: IDL.Func(
+        [],
+        [
+          IDL.Record({
+            totalGames: IDL.Nat,
+            totalVolume: IDL.Nat,
+            houseProfits: IDL.Nat,
+            activeGamesCount: IDL.Nat,
+          }),
+        ],
+        ["query"]
+      ),
+      getBetLimits: IDL.Func(
+        [],
+        [IDL.Record({ minBet: IDL.Nat, maxBet: IDL.Nat })],
+        ["query"]
+      ),
+      isGameActive: IDL.Func([], [IDL.Bool], ["query"]),
+      getMultiplierForMines: IDL.Func(
+        [IDL.Nat, IDL.Nat],
+        [IDL.Float64],
+        ["query"]
+      ),
+
+      // Token functions
+      getPlayerTokenBalance: IDL.Func([IDL.Principal], [IDL.Nat], []),
+      getPlayerAllowance: IDL.Func([], [IDL.Nat], []),
+      getRequiredApprovalAmount: IDL.Func([IDL.Nat], [IDL.Nat], []),
+      getGameCanisterPrincipal: IDL.Func([], [IDL.Principal], ["query"]),
+
+      // Debug functions
+      whoAmI: IDL.Func([], [IDL.Principal], []),
+      debugStartGameIssue: IDL.Func(
+        [IDL.Principal, IDL.Nat],
+        [
+          IDL.Record({
+            user_principal: IDL.Principal,
+            user_balance: IDL.Nat,
+            required_amount: IDL.Nat,
+            has_allowance: IDL.Bool,
+            allowance_amount: IDL.Nat,
+            balance_sufficient: IDL.Bool,
+            has_active_game: IDL.Bool,
+            game_active: IDL.Bool,
+            is_valid_bet: IDL.Bool,
+          }),
+        ],
+        []
+      ),
+    });
+  },
+};
+
+// Create Token Actor with retry logic
+export const createAPTCTokenActor = async (identity = null, maxRetries = 3) => {
+  let lastError = null;
+  let retryCount = 0;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(
+        `🔄 Creating APTC token actor (attempt ${retryCount + 1})...`
+      );
+      const agent = await createAgent(identity);
+
+      // Instead of dynamic import, use the direct IDL factory with static imports
+      // This is more reliable in certain build environments
+      const { idlFactory } = aptcTokenIdl;
+
+      const actor = Actor.createActor(idlFactory, {
+        agent,
+        canisterId: CANISTER_IDS.aptc_token,
+      });
+
+      // Test the connection with a simple query
+      try {
+        console.log("🔍 Testing APTC token actor connection...");
+        await actor.icrc1_name();
+        console.log("✅ APTC token actor created successfully");
+        return actor;
+      } catch (testError) {
+        console.warn(
+          "⚠️ APTC token actor connection test failed:",
+          testError.message
+        );
+        throw testError; // Re-throw for retry
+      }
+    } catch (err) {
+      lastError = err;
+      retryCount++;
+      console.error(
+        `❌ Failed to create APTC token actor (attempt ${retryCount}):`,
+        err.message
+      );
+
+      if (retryCount < maxRetries) {
+        // Exponential backoff: wait longer between each retry
+        const delayMs = 1000 * Math.pow(2, retryCount - 1);
+        console.log(`⏳ Retrying in ${delayMs / 1000} seconds...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
   }
+
+  // If we've exhausted all retries, throw the last error
+  console.error(
+    `❌ Failed to create APTC token actor after ${maxRetries} attempts`
+  );
+  throw lastError;
 };
 
 // Create Roulette Actor
@@ -289,6 +528,62 @@ export const createRouletteActor = async (identity = null) => {
     console.error("Failed to create Roulette actor:", err);
     throw err;
   }
+};
+
+// Create Mines Actor with retry logic
+export const createMinesActor = async (identity = null, maxRetries = 3) => {
+  let lastError = null;
+  let retryCount = 0;
+
+  while (retryCount < maxRetries) {
+    try {
+      console.log(`🔄 Creating Mines actor (attempt ${retryCount + 1})...`);
+      const agent = await createAgent(identity);
+
+      // Instead of dynamic import, use the direct IDL factory with static imports
+      // This is more reliable in certain build environments
+      const { idlFactory } = minesIdl;
+
+      const actor = Actor.createActor(idlFactory, {
+        agent,
+        canisterId: CANISTER_IDS.mines,
+      });
+
+      // Test the connection with a simple query
+      try {
+        // Adding a simple check to verify the actor is working
+        console.log("🔍 Testing Mines actor connection...");
+        // Use whoAmI which is a simple method that exists in the mines canister
+        await actor.whoAmI();
+        console.log("✅ Mines actor created successfully");
+        return actor;
+      } catch (testError) {
+        console.warn(
+          "⚠️ Mines actor connection test failed:",
+          testError.message
+        );
+        throw testError; // Re-throw for retry
+      }
+    } catch (err) {
+      lastError = err;
+      retryCount++;
+      console.error(
+        `❌ Failed to create Mines actor (attempt ${retryCount}):`,
+        err.message
+      );
+
+      if (retryCount < maxRetries) {
+        // Exponential backoff: wait longer between each retry
+        const delayMs = 1000 * Math.pow(2, retryCount - 1);
+        console.log(`⏳ Retrying in ${delayMs / 1000} seconds...`);
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  }
+
+  // If we've exhausted all retries, throw the last error
+  console.error(`❌ Failed to create Mines actor after ${maxRetries} attempts`);
+  throw lastError;
 };
 
 // Format token amount - Using simple Number format like Number(bet.winnings) / 100000000

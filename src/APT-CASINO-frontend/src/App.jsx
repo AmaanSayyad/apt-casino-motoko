@@ -1,9 +1,11 @@
-import React from "react";
+import React, { useEffect } from "react";
 import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import Providers from "./providers/Providers";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import BrowserCheck from "./components/BrowserCheck";
+import { initializeAssets } from "./utils/assetLoader";
+import useGameAssetLoader from "./hooks/useGameAssetLoader";
 // App directory routes (Next.js style converted to React)
 import HomePage from "./app/page";
 import GameLobbyPage from "./app/game/page";
@@ -13,8 +15,17 @@ import RouletteGame from "./app/game/roulette/page.jsx";
 // Enhanced backend-integrated components
 import EnhancedRouletteGame from "./components/games/EnhancedRouletteGame.jsx";
 import Mines from "./app/game/mines/page";
+import WheelGame from "./app/game/wheel/page";
 
 function App() {
+  useEffect(() => {
+    // Initialize assets when the app loads
+    initializeAssets();
+  }, []);
+
+  // Load game assets based on current route
+  useGameAssetLoader();
+
   return (
     <BrowserCheck>
       <Router>
@@ -36,6 +47,7 @@ function App() {
               />
 
               <Route path="/game/mines" element={<Mines />} />
+              <Route path="/game/wheel" element={<WheelGame />} />
             </Routes>
             <Footer />
           </Providers>

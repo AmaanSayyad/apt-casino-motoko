@@ -9,6 +9,10 @@ import {
   Container,
   Paper,
   Chip,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
 } from "@mui/material";
 import { ThemeProvider, createTheme } from "@mui/material/styles";
 import ClearIcon from "@mui/icons-material/Clear";
@@ -16,6 +20,11 @@ import Button from "../../../components/Button";
 import { muiStyles } from "./styles";
 import MuiAlert from "@mui/material/Alert";
 import Snackbar from "@mui/material/Snackbar";
+import {
+  ROULETTE_ASSETS,
+  rouletteSoundEffects,
+  preloadRouletteAssets,
+} from "./config/assets";
 // Backend Integration - Use the main backend integration hook
 import useBackendIntegration from "../../../hooks/useBackendIntegration";
 import { formatTokenAmount } from "../../../config/aptc-config";
@@ -200,6 +209,12 @@ const getResultNumberColor = (number) => {
 };
 
 export default function GameRoulette() {
+  // Preload roulette assets on component mount
+  useEffect(() => {
+    preloadRouletteAssets();
+    console.log("🎮 Roulette game assets preloaded");
+  }, []);
+
   // Backend Integration - Use main backend integration hook
   const {
     roulette,
@@ -268,6 +283,14 @@ export default function GameRoulette() {
 
   // State for tutorial modal
   const [showTutorial, setShowTutorial] = useState(false);
+
+  // Connection state for improved error handling
+  const [connectionState, setConnectionState] = useState({
+    status: "unknown", // unknown, connecting, connected, error
+    lastAttempt: null,
+    errorMessage: null,
+    isReconnecting: false,
+  });
 
   // Create theme
   const theme = createTheme(muiStyles["dark"]);
@@ -984,6 +1007,51 @@ export default function GameRoulette() {
     }
   }, [roulette]);
 
+  // Handle reconnection attempts
+  const handleReconnect = useCallback(async () => {
+    try {
+      setConnectionState((prev) => ({
+        ...prev,
+        status: "connecting",
+        isReconnecting: true,
+        errorMessage: null,
+      }));
+
+      setNotification({
+        open: true,
+        message: "Attempting to reconnect to game server...",
+        severity: "info",
+      });
+
+      // Try to recreate agent and reconnect
+      // First clear any localStorage items that might be causing issues
+      try {
+        localStorage.removeItem("agentCache");
+        localStorage.removeItem("identity");
+        console.log("🧹 Cleared cached agent data");
+      } catch (e) {
+        console.warn("Could not clear local storage:", e);
+      }
+
+      // Force a reload of the page to reinitialize all connections
+      window.location.reload();
+    } catch (err) {
+      console.error("Reconnection failed:", err);
+      setConnectionState((prev) => ({
+        ...prev,
+        status: "error",
+        isReconnecting: false,
+        errorMessage: err.message || "Failed to reconnect",
+      }));
+
+      setNotification({
+        open: true,
+        message: `Reconnection failed: ${err.message || "Unknown error"}`,
+        severity: "error",
+      });
+    }
+  }, []);
+
   // Fetch game state when component mounts or connection changes
   useEffect(() => {
     console.log("🔄 UseEffect triggered - checking connections:", {
@@ -995,6 +1063,15 @@ export default function GameRoulette() {
       console.log(
         "✅ Both backend and roulette available, fetching game state..."
       );
+      // Update connection state
+      setConnectionState((prev) => ({
+        ...prev,
+        status: "connected",
+        lastAttempt: new Date(),
+        isReconnecting: false,
+        errorMessage: null,
+      }));
+
       fetchGameState();
 
       // Set up periodic refresh every 10 seconds for game state
@@ -1011,8 +1088,16 @@ export default function GameRoulette() {
       console.log(
         "⏳ Waiting for backend connection or roulette initialization..."
       );
+
+      // Update connection state
+      setConnectionState((prev) => ({
+        ...prev,
+        status: error ? "error" : "connecting",
+        lastAttempt: new Date(),
+        errorMessage: error ? error.message || "Connection error" : null,
+      }));
     }
-  }, [backendConnected, roulette, fetchGameState]);
+  }, [backendConnected, roulette, fetchGameState, error]);
 
   return (
     <ThemeProvider theme={theme}>
@@ -1060,6 +1145,70 @@ export default function GameRoulette() {
                 gap: 2,
               }}
             >
+              {/* Connection Status Indicator */}
+              {connectionState.status === "error" && (
+                <Box
+                  sx={{ display: "flex", alignItems: "center", gap: 2, mr: 2 }}
+                >
+                  <Chip
+                    label="Connection Error - Click to Fix"
+                    color="error"
+                    icon={<RefreshIcon />}
+                    onClick={
+                      !connectionState.isReconnecting
+                        ? handleReconnect
+                        : undefined
+                    }
+                    sx={{
+                      cursor: connectionState.isReconnecting
+                        ? "wait"
+                        : "pointer",
+                      fontWeight: "bold",
+                      padding: "0 8px",
+                      "&:hover": !connectionState.isReconnecting
+                        ? {
+                            backgroundColor: "error.dark",
+                            boxShadow: "0 0 10px #ff0000",
+                          }
+                        : {},
+                      animation: connectionState.isReconnecting
+                        ? "pulse 1.5s infinite"
+                        : "none",
+                      "@keyframes pulse": {
+                        "0%": { opacity: 1 },
+                        "50%": { opacity: 0.6 },
+                        "100%": { opacity: 1 },
+                      },
+                    }}
+                  />
+                  {connectionState.isReconnecting && (
+                    <CircularProgress size={20} color="primary" />
+                  )}
+                </Box>
+              )}
+
+              {/* Port Warning - Check if using wrong port */}
+              {window.location.hostname === "127.0.0.1" &&
+                window.location.port !== "4943" && (
+                  <Box
+                    sx={{
+                      display: "flex",
+                      alignItems: "center",
+                      gap: 2,
+                      mr: 2,
+                    }}
+                  >
+                    <Chip
+                      label="Wrong Port - Use 4943"
+                      color="warning"
+                      sx={{
+                        fontWeight: "bold",
+                        padding: "0 8px",
+                      }}
+                    />
+                  </Box>
+                )}
+
               <Box sx={{ display: "flex", alignItems: "center", gap: 2 }}>
                 <Typography variant="h6" color="white">
                   Round Status:
@@ -2244,6 +2393,208 @@ export default function GameRoulette() {
             {notification.message}
           </MuiAlert>
         </Snackbar>
+
+        {/* Connection Error Modal */}
+        <Modal
+          open={
+            connectionState.status === "error" &&
+            !connectionState.isReconnecting
+          }
+          onClose={() =>
+            setConnectionState((prev) => ({ ...prev, status: "connecting" }))
+          }
+          aria-labelledby="connection-error-modal"
+        >
+          <Box
+            sx={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              transform: "translate(-50%, -50%)",
+              width: { xs: "95%", sm: "80%", md: "600px" },
+              bgcolor: "background.paper",
+              borderRadius: 2,
+              boxShadow: 24,
+              p: 4,
+              background: "#0D0415",
+              border: "1px solid #681DDB",
+            }}
+          >
+            <Typography
+              id="connection-error-modal"
+              variant="h6"
+              component="h2"
+              sx={{ color: "#ff5252", fontWeight: "bold", mb: 2 }}
+            >
+              ❌ Connection Error Detected
+            </Typography>
+
+            <Box sx={{ mb: 3 }}>
+              <Typography variant="body1" sx={{ color: "#fff", mb: 1 }}>
+                We're having trouble connecting to the Internet Computer
+                network. This is likely due to one of the following:
+              </Typography>
+
+              <ul style={{ color: "#ccc", paddingLeft: "20px" }}>
+                <li style={{ margin: "8px 0" }}>
+                  <strong style={{ color: "#ff7070" }}>
+                    The local Internet Computer replica is not running
+                  </strong>{" "}
+                  (Error: ERR_CONNECTION_REFUSED)
+                </li>
+                <li style={{ margin: "8px 0" }}>
+                  <strong style={{ color: "#ff7070" }}>Incorrect port:</strong>{" "}
+                  Your browser is trying to connect to port 50707 instead of
+                  4943
+                </li>
+                <li style={{ margin: "8px 0" }}>
+                  <strong style={{ color: "#ff7070" }}>
+                    Interface mismatch:
+                  </strong>{" "}
+                  The Mines game actor doesn't have the expected methods
+                </li>
+                <li style={{ margin: "8px 0" }}>
+                  Your network connection is unstable or blocked
+                </li>
+              </ul>
+            </Box>
+
+            <Box
+              sx={{
+                mb: 3,
+                backgroundColor: "rgba(20,216,84,0.1)",
+                p: 2,
+                borderRadius: 1,
+                border: "1px solid rgba(20,216,84,0.3)",
+              }}
+            >
+              <Typography variant="h6" sx={{ color: "#14D854", mb: 1 }}>
+                Mines Game Integration Fix:
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#ccc", mb: 1 }}>
+                There's a specific issue with the Mines game where the frontend
+                is looking for a{" "}
+                <code
+                  style={{
+                    backgroundColor: "#333",
+                    padding: "2px 4px",
+                    borderRadius: "3px",
+                  }}
+                >
+                  getGameInfo()
+                </code>{" "}
+                method, but your backend implementation uses{" "}
+                <code
+                  style={{
+                    backgroundColor: "#333",
+                    padding: "2px 4px",
+                    borderRadius: "3px",
+                  }}
+                >
+                  getGameStats()
+                </code>{" "}
+                instead.
+              </Typography>
+              <Typography variant="body2" sx={{ color: "#ccc" }}>
+                We've updated the code to fix this issue. Please restart your
+                local replica and reload the page.
+              </Typography>
+            </Box>
+
+            <Typography variant="h6" sx={{ color: "#14D854", mb: 2 }}>
+              Troubleshooting Steps:
+            </Typography>
+
+            <ol style={{ color: "#ccc", paddingLeft: "20px" }}>
+              <li style={{ margin: "8px 0" }}>
+                <strong style={{ color: "#fff" }}>
+                  Check if dfx is running:
+                </strong>{" "}
+                Open a terminal and run{" "}
+                <code
+                  style={{
+                    backgroundColor: "#333",
+                    padding: "3px 6px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  dfx ping
+                </code>
+              </li>
+              <li style={{ margin: "8px 0" }}>
+                <strong style={{ color: "#fff" }}>
+                  Restart local replica:
+                </strong>{" "}
+                Run{" "}
+                <code
+                  style={{
+                    backgroundColor: "#333",
+                    padding: "3px 6px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  dfx stop && dfx start --clean --background
+                </code>
+              </li>
+              <li style={{ margin: "8px 0" }}>
+                <strong style={{ color: "#fff" }}>Redeploy Mines game:</strong>{" "}
+                Run{" "}
+                <code
+                  style={{
+                    backgroundColor: "#333",
+                    padding: "3px 6px",
+                    borderRadius: "4px",
+                  }}
+                >
+                  dfx deploy mines-game
+                </code>{" "}
+                to ensure the Mines game canister is properly deployed
+              </li>
+              <li style={{ margin: "8px 0" }}>
+                <strong style={{ color: "#fff" }}>
+                  Verify port configuration:
+                </strong>{" "}
+                Make sure your frontend is connecting to the right port (default
+                is 4943)
+              </li>
+              <li style={{ margin: "8px 0" }}>
+                <strong style={{ color: "#fff" }}>Clear browser cache:</strong>{" "}
+                Clear your browser cache and cookies if problems persist
+              </li>
+            </ol>
+
+            <Box
+              sx={{ display: "flex", justifyContent: "space-between", mt: 4 }}
+            >
+              <Button
+                onClick={() => window.location.reload()}
+                variant="outlined"
+                sx={{
+                  color: "#fff",
+                  borderColor: "#681DDB",
+                  "&:hover": {
+                    borderColor: "#9161db",
+                    backgroundColor: "rgba(104, 29, 219, 0.1)",
+                  },
+                }}
+              >
+                Refresh Page
+              </Button>
+
+              <Button
+                onClick={handleReconnect}
+                variant="contained"
+                sx={{
+                  backgroundColor: "#681DDB",
+                  "&:hover": { backgroundColor: "#8847E8" },
+                }}
+                startIcon={<RefreshIcon />}
+              >
+                Reconnect to Network
+              </Button>
+            </Box>
+          </Box>
+        </Modal>
       </Box>
     </ThemeProvider>
   );

@@ -13,13 +13,15 @@ import {
 import HeaderText from "./HeaderText";
 import GameStats from "./GameStats";
 
+import { ASSETS, getGameImagePath } from "../utils/assets";
+
 // Game data with more details
 const FEATURED_GAMES = [
   {
     id: "roulette",
     title: "Roulette",
     description: "Spin the wheel and test your luck",
-    image: "/images/games/roulette.png",
+    image: ASSETS.games.roulette,
     path: "/game/roulette",
     players: 142,
     categories: ["featured", "table"],
@@ -32,7 +34,7 @@ const FEATURED_GAMES = [
     id: "fortune-tiger",
     title: "Fortune Tiger",
     description: "Win big with the lucky tiger slots",
-    image: "/images/games/fortune-tiger.png",
+    image: ASSETS.games.fortuneTiger,
     path: "/game/fortune-tiger",
     players: 89,
     categories: ["slots", "jackpot"],

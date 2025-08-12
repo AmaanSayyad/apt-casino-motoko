@@ -1,6 +1,8 @@
 # APT-CASINO
 
-A blockchain-based casino platform running on the Internet Computer Protocol (ICP) with multiple games including Roulette, Mines and Spin Wheel.
+A blockchain-based casino platform running on the Internet Computer Protocol (ICP) with multiple games including Roulette and Mines.
+
+<!-- ![APT-CASINO](src/APT-CASINO-frontend/public/PowerPlay.png) -->
 
 ## Overview
 
@@ -8,7 +10,7 @@ APT-CASINO is a decentralized casino application built on the Internet Computer 
 
 ## Features
 
-- 🎮 Multiple casino games (Roulette, Mines, Spin Wheel)
+- 🎮 Multiple casino games (Roulette, Mines)
 - 💰 Custom APTC token for betting
 - 🔐 Secure wallet integration
 - 📱 Responsive design for desktop and mobile
@@ -29,13 +31,15 @@ Follow these steps to set up the project locally:
 ### 1. Clone the repository
 
 ```bash
-git clone https://github.com/yourusername/apt-casino-motoko.git
+git clone https://github.com/yourusername/APT-CASINO.git
+cd APT-CASINO
 ```
 
 ### 2. Install dependencies
 
 ```bash
-cd src/APT-CASINO-backend
+npm install
+cd src/APT-CASINO-frontend
 npm install
 ```
 
@@ -158,6 +162,8 @@ To get APTC tokens for testing:
 
 ## Troubleshooting
 
+### General Issues
+
 If you encounter issues:
 
 1. Make sure you have the latest version of dfx installed
@@ -169,3 +175,75 @@ For wallet reset and debugging tools, see:
 
 - `/public/wallet-reset-tool.html`
 - `/public/debug-frontend-betting.html`
+
+### Connection Issues
+
+If you're experiencing connection issues with the Mines game or other canisters, try these steps:
+
+1. **Verify the local replica is running:**
+
+   ```bash
+   dfx ping
+   ```
+
+2. **Check canister status:**
+
+   ```bash
+   dfx canister status mines-game
+   dfx canister status APTC-token
+   ```
+
+3. **Ensure you're using port 4943:**
+   The application is configured to connect to `http://localhost:4943`. If your replica is running on a different port, you may experience connection issues.
+
+4. **Run the test connection script:**
+
+   ```bash
+   ./test_mines_connection.sh
+   ```
+
+   This script will check the connection to the mines game canister.
+
+5. **Redeploy specific canisters:**
+
+   ```bash
+   # For mines game issues
+   ./deploy_mines_game.sh
+
+   # For full redeploy
+   ./restart_and_deploy.sh
+   ```
+
+6. **Check browser console for specific errors:**
+   - `ERR_CONNECTION_REFUSED`: This indicates network connectivity issues
+   - `actor.[method] is not a function`: This indicates an interface mismatch between frontend and backend
+
+### Backend Interface Issues
+
+If you see errors like `actor.getGameInfo is not a function` or `actor.[method] is not a function`, the frontend is trying to call a method that doesn't exist in the backend. Check that:
+
+1. The method exists in the appropriate canister (.mo file)
+2. The IDL interface in the frontend matches the actual implementation
+3. You're using the latest canister ID after deployment
+
+### Quick Fix for Common Issues
+
+If you're experiencing connection issues or interface mismatches, the simplest solution is to run the restart and deploy script:
+
+```bash
+./restart_and_deploy.sh
+```
+
+This will restart the local replica and redeploy all canisters with their latest code.
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.
+
+## Contact
+
+For questions or support, please open an issue on the GitHub repository.

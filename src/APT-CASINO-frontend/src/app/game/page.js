@@ -1,8 +1,9 @@
-import React from "react";
+import React, { useEffect } from "react";
 import HeaderText from "../../components/HeaderText";
 import GameCarousel from "../../components/GameCarousel";
 import MostPlayed from "../../components/MostPlayed";
 import GameStats from "../../components/GameStats";
+import { ASSETS } from "../../utils/assets";
 
 export default function Page() {
   return (
