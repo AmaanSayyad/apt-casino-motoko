@@ -235,15 +235,3 @@ If you're experiencing connection issues or interface mismatches, the simplest s
 ```
 
 This will restart the local replica and redeploy all canisters with their latest code.
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Contact
-
-For questions or support, please open an issue on the GitHub repository.
