@@ -59,6 +59,10 @@ NEXT_PUBLIC_APTC_TOKEN_CANISTER_ID=f2kju-siaaa-aaaan-qz5zq-cai
 - **Multiplier**: Increases as you reveal more tiles safely
 - **Cashout**: Collect winnings at any time
 
+### Plinko
+- **Risk Levels**: Low, Medium, High
+- **Instant Results**: Immediate win/loss determination
+
 ### Spin Wheel
 - **Risk Levels**: Low, Medium, High
 - **Segments**: 6-10 segments based on risk
