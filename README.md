@@ -95,12 +95,6 @@ Visit [http://localhost:3000](http://localhost:3000) to see the application.
 - **Randomness**: On-chain SHA3-256 hashing
 - **Events**: Comprehensive event system
 
-### ICP Backend (Optional)
-- **Motoko Canisters**: Internet Computer Protocol backend
-- **Deployment**: DFX-based deployment scripts
-- **Token Integration**: APTC token support
-- **Local Development**: Local replica support
-
 ### Key Components
 
 ```
@@ -123,11 +117,6 @@ move-contracts/
 │   └── wheel.move        # Wheel game contract
 ├── scripts/              # Deployment scripts
 └── Move.toml            # Move package configuration
-
-deploy/                   # ICP deployment files
-├── backend/              # Motoko backend canisters
-├── token/                # APTC token canister
-└── scripts/              # Deployment scripts
 ```
 
 ## 🎯 Game Mechanics
@@ -179,20 +168,6 @@ aptos move test
 
 # Deploy to testnet
 node scripts/deploy.js testnet
-```
-
-### ICP Backend Development
-```bash
-cd deploy
-
-# Start local replica
-./local_start.sh
-
-# Deploy to local network
-./deploy_local.sh
-
-# Deploy to mainnet
-./deploy_mainnet.sh
 ```
 
 ### Environment Variables
