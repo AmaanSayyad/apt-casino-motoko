@@ -1,0 +1,19 @@
+service : {
+  get_balance_of: (principal) -> (nat) query;
+  deposit: (nat) -> ();
+  withdraw_all: () -> (nat);
+  withdraw_balance_to: (principal) -> (nat);
+  withdraw_to: (principal, nat) -> (nat);
+  random_blob: () -> (blob);
+  random_nat: (nat) -> (nat);
+  play_roulette: () -> (nat);
+  play_plinko: (nat) -> (nat);
+  play_wheel: (nat) -> (nat);
+  start_mines: () -> (blob);
+  mines_is_safe: (blob, nat, nat, nat) -> (bool);
+  send_aptc_to_user: (principal, nat) -> ();
+  request_deposit: (nat) -> (nat, text);
+  check_deposit_completion: (nat) -> (bool, nat);
+}
+
+

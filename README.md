@@ -1,237 +1,286 @@
-# APT-CASINO
+# APT Casino - Fully On-Chain Casino on Aptos Blockchain
 
-A blockchain-based casino platform running on the Internet Computer Protocol (ICP) with multiple games including Roulette and Mines.
+A fully on-chain casino replica of stake.com built on the Aptos blockchain, featuring three popular casino games: Roulette, Mines, and Spin Wheel. All games use on-chain randomness and are played exclusively with APT tokens.
 
-<!-- ![APT-CASINO](src/APT-CASINO-frontend/public/PowerPlay.png) -->
+## 🎮 Features
 
-## Overview
+### Games
+- **Roulette**: Classic roulette with multiple bet types (numbers, colors, odds/evens, etc.)
+- **Mines**: Reveal tiles to find gems while avoiding mines
+- **Spin Wheel**: Risk-based wheel spinning with different multiplier segments
 
-APT-CASINO is a decentralized casino application built on the Internet Computer Protocol. It features multiple games including Roulette and Mines, with a custom APTC token for betting. The application consists of a backend written in Motoko and a frontend built with React.js.
+### Blockchain Features
+- **Aptos Integration**: Full Aptos blockchain integration
+- **On-Chain Randomness**: All games use provably fair on-chain randomness
+- **APT Token Support**: All games played exclusively with APT tokens
+- **Multiple Wallet Support**: Petra, Martian, and other Aptos wallets
+- **Mobile Friendly**: Responsive design for mobile and desktop
 
-## Features
+### Technical Features
+- **Move Contracts**: Smart contracts written in Move language
+- **Real-Time Updates**: Live game state and balance updates
+- **Event System**: Comprehensive event tracking for all game actions
+- **Security**: Provably fair gaming with on-chain verification
 
-- 🎮 Multiple casino games (Roulette, Mines)
-- 💰 Custom APTC token for betting
-- 🔐 Secure wallet integration
-- 📱 Responsive design for desktop and mobile
-- 🔄 Real-time updates for bets and game state
+## 🚀 Quick Start
 
-## Prerequisites
+### Prerequisites
+- Node.js 18+ 
+- npm or yarn
+- Aptos CLI (for contract deployment)
 
-Before you begin, ensure you have the following installed:
+### Installation
 
-- [Node.js](https://nodejs.org/) (v16.x or higher)
-- [npm](https://www.npmjs.com/) (v8.x or higher)
-- [dfx](https://internetcomputer.org/docs/current/developer-tools/deploy/install-dfx) (Internet Computer SDK, v0.15.0 or higher)
-
-## Installation
-
-Follow these steps to set up the project locally:
-
-### 1. Clone the repository
-
+1. **Clone the repository**
 ```bash
-git clone https://github.com/yourusername/APT-CASINO.git
-cd APT-CASINO
+git clone <repository-url>
+cd APT-Casino-Move
 ```
 
-### 2. Install dependencies
-
+2. **Install dependencies**
 ```bash
 npm install
-cd src/APT-CASINO-frontend
-npm install
 ```
 
-### 3. Start the local Internet Computer replica
-
+3. **Set up environment variables**
 ```bash
-dfx start --background
+cp .env.example .env.local
 ```
 
-### 4. Deploy the canisters
-
-```bash
-dfx deploy
+Edit `.env.local`:
+```env
+NEXT_PUBLIC_APTOS_NETWORK=testnet
+NEXT_PUBLIC_CASINO_MODULE_ADDRESS=your_deployed_module_address
+DEPLOYER_PRIVATE_KEY=your_deployer_private_key
 ```
 
-This will deploy both the backend canisters (roulette, mines) and the frontend canister.
+4. **Deploy Move contracts**
 
-### 5. Deploy the APTC token
-
+First, compile the Move contracts:
 ```bash
-./deploy_aptc_token.sh
+cd move-contracts
+aptos move compile
 ```
 
-### 6. Mint initial token supply
-
+Deploy to testnet:
 ```bash
-./mint_initial_supply.sh
+node scripts/deploy.js testnet
 ```
 
-## Running the Application
-
-### Development Mode
-
-To run the frontend in development mode with hot reloading:
-
+Deploy to mainnet:
 ```bash
-cd src/APT-CASINO-frontend
+node scripts/deploy.js mainnet
+```
+
+5. **Start the development server**
+```bash
 npm run dev
 ```
 
-Then open your browser and navigate to `http://localhost:5173`.
+Visit [http://localhost:3000](http://localhost:3000) to see the application.
 
-### Production Build
+## 🏗️ Architecture
 
-To build the frontend for production:
+### Frontend (Next.js)
+- **Framework**: Next.js 15 with React 18
+- **Styling**: Tailwind CSS with custom gradients
+- **State Management**: React hooks and context
+- **Wallet Integration**: Aptos wallet adapter
+- **UI Components**: Custom casino-themed components
 
+### Smart Contracts (Move)
+- **Language**: Move
+- **Framework**: Aptos Framework
+- **Games**: Roulette, Mines, Wheel
+- **Randomness**: On-chain SHA3-256 hashing
+- **Events**: Comprehensive event system
+
+### Key Components
+
+```
+src/
+├── app/                    # Next.js app directory
+│   ├── game/              # Game pages
+│   │   ├── roulette/      # Roulette game
+│   │   ├── mines/         # Mines game
+│   │   └── wheel/         # Wheel game
+│   └── providers.js       # App providers
+├── components/            # React components
+├── hooks/                # Custom hooks
+├── lib/                  # Utilities and configurations
+└── styles/               # Global styles
+
+move-contracts/
+├── sources/              # Move source files
+│   ├── roulette.move     # Roulette game contract
+│   ├── mines.move        # Mines game contract
+│   └── wheel.move        # Wheel game contract
+├── scripts/              # Deployment scripts
+└── Move.toml            # Move package configuration
+```
+
+## 🎯 Game Mechanics
+
+### Roulette
+- **Bet Types**: Numbers (0-36), Colors (Red/Black), Odds/Evens, High/Low, Dozens, Columns, Split, Street, Corner, Line
+- **Payouts**: 1:1 to 35:1 depending on bet type
+- **Randomness**: On-chain SHA3-256 with timestamp and transaction data
+
+### Mines
+- **Grid**: 5x5 grid (25 tiles)
+- **Mines**: 1-24 mines per game
+- **Reveal**: Click tiles to reveal gems or mines
+- **Multiplier**: Increases as you reveal more tiles safely
+- **Cashout**: Collect winnings at any time
+
+### Spin Wheel
+- **Risk Levels**: Low, Medium, High
+- **Segments**: 6-10 segments based on risk
+- **Multipliers**: 1.2x to 10x depending on risk level
+- **Instant Results**: Immediate win/loss determination
+
+## 🔧 Development
+
+### Frontend Development
 ```bash
-cd src/APT-CASINO-frontend
+# Start development server
+npm run dev
+
+# Build for production
+npm run build
+
+# Start production server
+npm start
+
+# Run linting
+npm run lint
+```
+
+### Contract Development
+```bash
+cd move-contracts
+
+# Compile contracts
+aptos move compile
+
+# Run tests
+aptos move test
+
+# Deploy to testnet
+node scripts/deploy.js testnet
+```
+
+### Environment Variables
+```env
+# Aptos Configuration
+NEXT_PUBLIC_APTOS_NETWORK=testnet|mainnet
+NEXT_PUBLIC_CASINO_MODULE_ADDRESS=your_module_address
+
+# Deployment
+DEPLOYER_PRIVATE_KEY=your_private_key
+
+# Wallet Connect
+NEXT_PUBLIC_WALLET_CONNECT_PROJECT_ID=your_project_id
+```
+
+## 🚀 Deployment
+
+### Vercel Deployment
+
+1. **Connect to Vercel**
+```bash
+npm install -g vercel
+vercel login
+```
+
+2. **Deploy**
+```bash
+vercel --prod
+```
+
+3. **Set Environment Variables**
+In Vercel dashboard, set:
+- `NEXT_PUBLIC_APTOS_NETWORK`
+- `NEXT_PUBLIC_CASINO_MODULE_ADDRESS`
+
+### Manual Deployment
+
+1. **Build the application**
+```bash
 npm run build
 ```
 
-## Project Structure
+2. **Deploy to your hosting provider**
+Upload the `.next` folder and `public` folder to your hosting provider.
 
-```
-APT-CASINO/
-├── deploy_aptc_token.sh         # Script to deploy the APTC token
-├── dfx.json                     # DFX configuration file
-├── mint_initial_supply.sh       # Script to mint initial token supply
-├── package.json                 # Project dependencies
-├── transfer-to-user.sh          # Script to transfer tokens to users
-├── src/
-│   ├── APT-CASINO-backend/      # Backend canister code (Motoko)
-│   │   ├── mines.mo             # Mines game logic
-│   │   ├── roulette.mo          # Roulette game logic
-│   │   ├── types.mo             # Type definitions
-│   │   └── utils.mo             # Utility functions
-│   └── APT-CASINO-frontend/     # Frontend code (React)
-│       ├── public/              # Static assets
-│       └── src/                 # React source code
-│           ├── app/             # Application components
-│           │   ├── game/        # Game components
-│           │   ├── profile/     # User profile components
-│           │   └── bank/        # Banking/wallet components
-│           ├── components/      # Reusable UI components
-│           ├── contexts/        # React contexts
-│           ├── hooks/           # Custom React hooks
-│           └── utils/           # Utility functions
-└── declarations/                # Generated type declarations
-    ├── APT-CASINO-frontend/
-    ├── APTC-token/
-    ├── internet_identity/
-    ├── mines-game/
-    └── roulette-game/
-```
+## 🔐 Security
 
-## Playing the Games
+### On-Chain Randomness
+All games use on-chain randomness generated from:
+- Block timestamp
+- Transaction hash
+- Player address
+- Nonce values
 
-### Roulette
+### Provably Fair
+- All game logic is on-chain
+- Randomness is verifiable
+- No server-side manipulation possible
 
-1. Connect your wallet
-2. Set your bet amount
-3. Select a number, color, or betting section
-4. Click to place your bet
-5. Wait for the wheel to spin and see if you win!
+### Smart Contract Security
+- Reentrancy protection
+- Input validation
+- Proper error handling
+- Event logging for transparency
 
-### Mines
+## 📱 Mobile Support
 
-1. Connect your wallet
-2. Set your bet amount and number of mines
-3. Click on tiles to reveal them
-4. Avoid mines and collect gems
-5. Cash out to secure your winnings before hitting a mine
+The application is fully responsive and optimized for:
+- **iOS Safari**: Full support
+- **Android Chrome**: Full support
+- **Mobile wallets**: Petra, Martian, etc.
+- **Touch interactions**: Optimized for touch devices
 
-## Wallet Integration
+## 🎨 Customization
 
-The casino integrates with Internet Identity for authentication. Follow these steps to connect:
+### Styling
+- **Theme**: Dark casino theme with purple/blue gradients
+- **Colors**: Customizable in `src/styles/colors.css`
+- **Components**: Modular component system
 
-1. Click "Connect Wallet" in the application
-2. Either sign in with an existing Internet Identity or create a new one
-3. Approve the connection to give the application access to your identity
-4. Once connected, you'll be able to see your APTC token balance and place bets
+### Games
+- **Adding Games**: Create new Move contracts and frontend components
+- **Modifying Games**: Update contract logic and UI components
+- **Configuration**: Game parameters in contract constants
 
-## Token Management
+## 🤝 Contributing
 
-To get APTC tokens for testing:
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
-```bash
-./transfer-to-user.sh <principal-id> <amount>
-```
+## 📄 License
 
-## Troubleshooting
+This project is licensed under the MIT License - see the LICENSE file for details.
 
-### General Issues
+## 🆘 Support
 
-If you encounter issues:
+- **Documentation**: [Link to docs]
+- **Issues**: [GitHub Issues]
+- **Discord**: [Discord Server]
+- **Telegram**: [Telegram Group]
 
-1. Make sure you have the latest version of dfx installed
-2. Check that the local replica is running with `dfx ping`
-3. Clear your browser cache
-4. Try redeploying the canisters with `dfx deploy --rebuild`
+## 🏆 Roadmap
 
-For wallet reset and debugging tools, see:
+- [ ] Additional games (Blackjack, Poker)
+- [ ] Tournament system
+- [ ] NFT integration
+- [ ] Advanced betting features
+- [ ] Mobile app
+- [ ] Multi-language support
 
-- `/public/wallet-reset-tool.html`
-- `/public/debug-frontend-betting.html`
+---
 
-### Connection Issues
-
-If you're experiencing connection issues with the Mines game or other canisters, try these steps:
-
-1. **Verify the local replica is running:**
-
-   ```bash
-   dfx ping
-   ```
-
-2. **Check canister status:**
-
-   ```bash
-   dfx canister status mines-game
-   dfx canister status APTC-token
-   ```
-
-3. **Ensure you're using port 4943:**
-   The application is configured to connect to `http://localhost:4943`. If your replica is running on a different port, you may experience connection issues.
-
-4. **Run the test connection script:**
-
-   ```bash
-   ./test_mines_connection.sh
-   ```
-
-   This script will check the connection to the mines game canister.
-
-5. **Redeploy specific canisters:**
-
-   ```bash
-   # For mines game issues
-   ./deploy_mines_game.sh
-
-   # For full redeploy
-   ./restart_and_deploy.sh
-   ```
-
-6. **Check browser console for specific errors:**
-   - `ERR_CONNECTION_REFUSED`: This indicates network connectivity issues
-   - `actor.[method] is not a function`: This indicates an interface mismatch between frontend and backend
-
-### Backend Interface Issues
-
-If you see errors like `actor.getGameInfo is not a function` or `actor.[method] is not a function`, the frontend is trying to call a method that doesn't exist in the backend. Check that:
-
-1. The method exists in the appropriate canister (.mo file)
-2. The IDL interface in the frontend matches the actual implementation
-3. You're using the latest canister ID after deployment
-
-### Quick Fix for Common Issues
-
-If you're experiencing connection issues or interface mismatches, the simplest solution is to run the restart and deploy script:
-
-```bash
-./restart_and_deploy.sh
-```
-
-This will restart the local replica and redeploy all canisters with their latest code.
+**Built with ❤️ on Aptos Blockchain**

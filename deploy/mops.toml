@@ -1,0 +1,10 @@
+[package]
+name = "casino-backend"
+version = "0.1.0"
+description = "Randomness-powered casino endpoints for ICP"
+repository = ""
+keywords = ["ic", "motoko", "casino", "random"]
+license = "Apache-2.0"
+
+[dependencies]
+base = "0.11.1"
