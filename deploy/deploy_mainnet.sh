@@ -1,30 +1,83 @@
-#!/usr/bin/env bash
-set -euo pipefail
+#!/bin/bash
 
-NETWORK="ic"
+# APT Casino - Mainnet Deployment Script
+# This script deploys the APT Casino application to the ICP mainnet
+# 
+# ⚠️  WARNING: This will deploy to MAINNET and consume real cycles
+# 
+# Prerequisites:
+# - DFX SDK installed (v0.15.0 or higher)
+# - Internet Identity configured and authenticated
+# - Sufficient cycles in your identity wallet
+# - Proper network configuration for mainnet
+#
+# Author: APT Casino Development Team
+# Date: $(date +%Y-%m-%d)
 
-if ! command -v dfx >/dev/null 2>&1; then
-  echo "dfx not found." >&2; exit 1
+set -e  # Exit on any error
+
+echo "🚀 Starting APT Casino mainnet deployment..."
+echo "🌐 Network: mainnet"
+echo ""
+
+# Check if dfx is installed
+if ! command -v dfx &> /dev/null; then
+    echo "❌ Error: DFX is not installed. Please install DFX SDK first."
+    echo "   Visit: https://internetcomputer.org/docs/current/developer-docs/setup/install/"
+    exit 1
 fi
 
-echo "Building and deploying canisters to mainnet..."
-dfx deploy --network "$NETWORK"
+# Check if user is authenticated
+echo "🔐 Checking authentication..."
+if ! dfx identity whoami &> /dev/null; then
+    echo "❌ Error: Not authenticated. Please run 'dfx identity new <name>' and 'dfx identity use <name>'"
+    exit 1
+fi
 
-BACKEND_ID=$(dfx canister --network "$NETWORK" id backend)
-TOKEN_ID=$(dfx canister --network "$NETWORK" id aptc_token)
+# Check cycles balance
+echo "💰 Checking cycles balance..."
+CYCLES=$(dfx wallet balance --network mainnet)
+echo "   Current balance: $CYCLES"
 
-echo "Backend: $BACKEND_ID"
-echo "Token:   $TOKEN_ID"
+# Confirm deployment
+echo ""
+echo "⚠️  WARNING: This will deploy to MAINNET and consume real cycles!"
+echo "   Current cycles: $CYCLES"
+echo ""
+read -p "Are you sure you want to continue? (y/N): " -n 1 -r
+echo
+if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+    echo "❌ Deployment cancelled."
+    exit 1
+fi
 
-echo "Setting token minter to backend..."
-dfx canister --network "$NETWORK" call aptc_token set_minter "(principal \"$BACKEND_ID\")"
+echo "📦 Building and deploying canisters to mainnet..."
 
-echo "Wiring backend with token canister..."
-dfx canister --network "$NETWORK" call backend set_token_canister "(principal \"$TOKEN_ID\")"
+# Deploy all canisters
+dfx deploy --network mainnet
 
-echo "Setting backend self principal..."
-dfx canister --network "$NETWORK" call backend set_self_principal "(principal \"$BACKEND_ID\")"
+echo ""
+echo "✅ Mainnet deployment completed successfully!"
+echo ""
 
-echo "Done."
+# Get canister IDs
+echo "🆔 Canister IDs:"
+dfx canister id backend --network mainnet
+dfx canister id token --network mainnet
+dfx canister id frontend --network mainnet
+
+echo ""
+echo "🌐 Frontend URL:"
+echo "   https://$(dfx canister id frontend --network mainnet).ic0.app"
+
+echo ""
+echo "🎉 APT Casino is now live on mainnet!"
+echo "   Users can access the application at the URL above."
+echo ""
+echo "💡 Next steps:"
+echo "   - Test all functionality on mainnet"
+echo "   - Monitor canister performance and cycles usage"
+echo "   - Update frontend configuration with new canister IDs"
+echo "   - Consider setting up monitoring and alerting"
 
 
